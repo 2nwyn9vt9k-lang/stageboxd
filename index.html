@@ -403,7 +403,7 @@
 <body>
 
 <div class="marquee">
-  <div id="buildStamp" style="position:absolute; bottom:6px; right:12px; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.35); pointer-events:none;">build 2026-06-25d</div>
+  <div id="buildStamp" style="position:absolute; bottom:6px; right:12px; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.35); pointer-events:none;">build 2026-06-25e</div>
   <h1>The Underscore</h1>
   <div class="sub">the line running quietly under every show you've seen</div>
 </div>
@@ -428,6 +428,7 @@
 <div class="bottom-actions">
   <button id="exportBtn">EXPORT</button>
   <button id="importBtn">IMPORT</button>
+  <button id="apiKeyBtn">API KEY</button>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -696,8 +697,23 @@ const VERDICTS = [
    STATE + STORAGE
    ============================================================ */
 const STORAGE_KEY = 'ledger-data';
+const API_KEY_STORAGE = 'underscore-api-key';
 let DATA = { overrides:{}, customShows:{}, anchors:[] };
 let dataLoaded = false;
+
+/* ---- personal Anthropic API key: deliberately its own storage key, kept
+   OUT of ledger-data, so it never gets swept into an EXPORT backup ---- */
+function getApiKey(){
+  try{ return (localStorage.getItem(API_KEY_STORAGE) || '').trim(); }
+  catch(e){ return ''; }
+}
+function setApiKey(key){
+  try{ localStorage.setItem(API_KEY_STORAGE, key.trim()); }
+  catch(e){ alert('Could not save the key — this browser may be blocking local storage.'); }
+}
+function clearApiKey(){
+  try{ localStorage.removeItem(API_KEY_STORAGE); }catch(e){}
+}
 
 function loadData(){
   try{
@@ -841,14 +857,17 @@ function renderReview(){
       <h2 class="section-title">Review</h2>
       <div class="empty">
         <span class="bulb">💡</span>
-        <p>The ghost light's the only thing on. You've made a call on everything currently in the deck — all 210 seed titles, plus anything you've added.</p>
+        <p>The ghost light's the only thing on. You've made a call on everything currently in the deck — all seed titles, plus anything you've added.</p>
       </div>
       <div class="btnrow" style="justify-content:center;">
         <button class="btn ghost-dark" id="addCustomFromEmpty">+ add a specific show</button>
+        <button class="btn amber" id="findMoreFromEmpty">✨ ask Claude for more shows</button>
       </div>
-      <p style="font-family:var(--font-mono);font-size:10px;color:var(--chalk-dim);text-align:center;margin-top:8px;">When you want more on the seed list, go back to a chat with Claude and ask for another batch — the list grows in batches added directly to the code, not live in the app.</p>
+      <div id="findMoreStatus" style="text-align:center;margin-top:10px;"></div>
+      <p style="font-family:var(--font-mono);font-size:10px;color:var(--chalk-dim);text-align:center;margin-top:8px;">"Ask Claude for more shows" makes a live API call using your personal key (see the API KEY button below) — typically a few cents, and it double-checks facts with a web search before answering. No key set up yet? The button will walk you through it.</p>
     `;
     document.getElementById('addCustomFromEmpty').onclick = ()=> openAddCustomModal(()=>{ currentReviewId=null; renderReview(); });
+    document.getElementById('findMoreFromEmpty').onclick = ()=> findMoreShowsViaAPI();
     return;
   }
   const show = getShow(currentReviewId);
@@ -1160,6 +1179,183 @@ function openAddCustomModal(onAdded){
 }
 
 /* ============================================================
+   PERSONAL API KEY + LIVE AI FEATURES
+   ----------------------------------------------------------------
+   Everything below is opt-in. With no key saved, the rest of the app —
+   Review, Library, and the local "Quick check" in Vibe Check — works
+   exactly as it always has: zero accounts, zero cost, zero network calls.
+   These two features are the ONLY things that ever talk to a server:
+   "ask Claude for more shows" (Review) and the live Computer Friend
+   button (Vibe Check). Both call api.anthropic.com directly from this
+   browser using whatever key is saved here — nothing else, nowhere else.
+   ============================================================ */
+
+function openApiKeyModal(){
+  const existing = getApiKey();
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop';
+  back.innerHTML = `
+    <div class="modal">
+      <h2 class="section-title" style="color:var(--ink)">Personal API key</h2>
+      <p style="font-size:13px;color:#5a5550;margin-top:-6px;">
+        This unlocks two live features — "ask Claude for more shows" in Review, and the live
+        "Ask Computer Friend" button in Vibe Check — by calling Anthropic's API straight from
+        this browser, with a key that's yours alone.
+      </p>
+      <p style="font-size:13px;color:#5a5550;">
+        <b>Get one:</b> go to <code>platform.claude.com/settings/keys</code> (a separate account
+        from claude.ai — sign up, add a card, the page walks you through it). It's pay-per-use,
+        no subscription — typically a fraction of a cent per Computer Friend run, a few cents per
+        "find more shows" batch. Setting a small monthly spending cap there (e.g. $5) is a smart
+        first move so there's never a surprise.
+      </p>
+      <div class="field">
+        <label>${existing ? 'Replace your saved key' : 'Paste your key here'}</label>
+        <input type="text" id="apiKeyInput" placeholder="sk-ant-..." value="">
+      </div>
+      <p style="font-size:11px;font-family:var(--font-mono);color:#7a756d;">
+        ${existing ? 'A key is currently saved in this browser.' : 'No key saved in this browser yet.'}
+        Stored only here, in this browser's own local storage — never included in an EXPORT backup,
+        never sent anywhere except directly to api.anthropic.com.
+      </p>
+      <div class="btnrow">
+        <button class="btn amber" id="apiKeySave">Save key</button>
+        ${existing ? '<button class="btn danger" id="apiKeyRemove">Remove saved key</button>' : ''}
+        <button class="btn small" id="apiKeyCancel">Close</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(back);
+  back.querySelector('#apiKeyCancel').onclick = ()=> back.remove();
+  back.querySelector('#apiKeySave').onclick = ()=>{
+    const val = back.querySelector('#apiKeyInput').value.trim();
+    if(!val){ alert('Paste a key first, or hit Close to cancel without changing anything.'); return; }
+    setApiKey(val);
+    back.remove();
+  };
+  const removeBtn = back.querySelector('#apiKeyRemove');
+  if(removeBtn) removeBtn.onclick = ()=>{
+    if(confirm("Remove the saved key from this browser? The two live AI features will stop working until you add one again — everything else in the app keeps working exactly as before.")){
+      clearApiKey();
+      back.remove();
+    }
+  };
+}
+
+/*
+  Shared low-level call used by both live features. Talks to
+  api.anthropic.com directly from the browser using the saved personal
+  key. The 'anthropic-dangerous-direct-browser-access' header is required
+  on every request — it's Anthropic's documented way of saying "yes, a
+  browser calling this with its own key is intentional," not a sign
+  anything here is actually dangerous. Skipping it makes every call fail.
+*/
+async function callClaudeAPI({system, userText, useWebSearch}){
+  const key = getApiKey();
+  if(!key){ openApiKeyModal(); throw new Error('no-key'); }
+  const body = {
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1000,
+    system: system,
+    messages: [{ role:'user', content:userText }]
+  };
+  if(useWebSearch){
+    body.tools = [{ type:'web_search_20250305', name:'web_search' }];
+  }
+  let res;
+  try{
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers: {
+        'content-type':'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify(body)
+    });
+  }catch(networkErr){
+    throw new Error("Could not reach Anthropic's servers — check your connection and try again.");
+  }
+  if(!res.ok){
+    let detail = '';
+    try{ const errJson = await res.json(); detail = (errJson && errJson.error && errJson.error.message) || ''; }catch(e){}
+    if(res.status===401) throw new Error('That key was rejected (401) — double-check it was pasted in full, or generate a fresh one at platform.claude.com/settings/keys.');
+    if(res.status===429) throw new Error("Rate-limited (429) — Anthropic says to slow down a bit. Try again in a moment.");
+    throw new Error('API error ' + res.status + (detail ? ': ' + detail : '') + '.');
+  }
+  const data = await res.json();
+  const text = (data.content || [])
+    .filter(block => block.type === 'text')
+    .map(block => block.text)
+    .join('\n')
+    .trim();
+  return text;
+}
+
+async function findMoreShowsViaAPI(){
+  const btn = document.getElementById('findMoreFromEmpty');
+  const status = document.getElementById('findMoreStatus');
+  if(!getApiKey()){ openApiKeyModal(); return; }
+  const existingTitles = Object.values(allShows()).map(s=>s.title);
+  if(btn){ btn.disabled = true; btn.textContent = 'asking Claude... (web search makes this take ~15–30s)'; }
+  if(status) status.innerHTML = '';
+  const system = `You are a theater-history-literate research assistant for a personal musical-theater tracking app.
+Your only job: suggest NEW musicals that are NOT already in the user's list below.
+Rules:
+- Musicals only. Never straight plays.
+- Never repeat a title already in the provided list (case-insensitive, ignore minor punctuation differences).
+- Favor structurally or historically significant titles over obscure one-off regional shows, but mix eras.
+- Use the web search tool to double-check year and creative-team credits before finalizing, especially for jukebox musicals, recent shows, or anything you're not fully sure of.
+- Your FINAL reply must be ONLY a JSON array — no preamble, no markdown code fences, no explanation before or after. Exactly this shape:
+[["Title", year_as_number_or_null, ["Composer","Lyricist","Book writer"], ["tag1","tag2"]], ...]
+Suggest exactly 8 shows.`;
+  const userText = `Here is the user's existing list of ${existingTitles.length} titles:\n${existingTitles.join('\n')}\n\nGive me 8 new musicals not on this list, as the JSON array described in your instructions.`;
+  try{
+    const raw = await callClaudeAPI({system, userText, useWebSearch:true});
+    const cleaned = raw.replace(/```json|```/g,'').trim();
+    let parsed;
+    try{
+      parsed = JSON.parse(cleaned);
+    }catch(parseErr){
+      if(status) status.innerHTML = `<div class="ai-response" style="text-align:left;">Claude answered, but it didn't come back as clean JSON — here's the raw reply so nothing's lost:<br><br>${escapeHtml(raw)}</div>`;
+      return;
+    }
+    if(!Array.isArray(parsed)){
+      if(status) status.innerHTML = `<div class="ai-response" style="text-align:left;">Claude answered, but not in the expected list format. Raw reply:<br><br>${escapeHtml(raw)}</div>`;
+      return;
+    }
+    const seedSlugs = new Set(Object.keys(SEED_SHOWS));
+    let added = 0, skipped = 0;
+    parsed.forEach(entry=>{
+      if(!Array.isArray(entry) || !entry[0]) return;
+      const [title, year, team, tags] = entry;
+      const slug = slugify(String(title));
+      const isDupSeed = seedSlugs.has(slug);
+      const isDupCustom = Object.values(DATA.customShows).some(cs=>slugify(cs.title)===slug);
+      if(isDupSeed || isDupCustom){ skipped++; return; }
+      const id = 'ai-' + slug + '-' + Date.now() + Math.floor(Math.random()*1000);
+      DATA.customShows[id] = {
+        id, title: String(title),
+        year: (typeof year==='number') ? year : (year ? (Number(year)||null) : null),
+        team: Array.isArray(team) ? team : [],
+        tags: [...(Array.isArray(tags) ? tags : []), 'ai-suggested'],
+        custom: true
+      };
+      added++;
+    });
+    saveData();
+    currentReviewId = null;
+    alert(`Added ${added} new show${added===1?'':'s'} to your deck${skipped?` (skipped ${skipped} already on your list)`:''}. They're tagged "ai-suggested" and deletable from the Library if one turns out wrong — same as any custom show.`);
+    renderReview();
+  }catch(err){
+    if(err.message !== 'no-key' && status) status.innerHTML = `<div class="ai-response" style="text-align:left;">Something went wrong: ${escapeHtml(err.message)}</div>`;
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '✨ ask Claude for more shows'; }
+  }
+}
+
+/* ============================================================
    LIBRARY TAB
    ============================================================ */
 let libFilter = { text:'', cap:null, showHidden:false };
@@ -1252,9 +1448,11 @@ function openLibDetail(showId){
     <div class="modal" style="max-width:600px;">
       <h2 class="section-title" style="color:var(--ink)">${escapeHtml(show.title)}</h2>
       <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">${show.year?show.year+' · ':''}${show.team.map(escapeHtml).join(', ')}</p>
+      ${show.tags && show.tags.length ? `<div class="tags" style="margin-bottom:6px;">${show.tags.map(t=>`<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
       <div id="libDetailExp">${state.experiences.map(e=>expEntryHtml(showId,e)).join('') || "<p style=\"font-size:13px;color:#7a756d;\">No experiences logged. Just a someday or dont-care flag.</p>"}</div>
       <div class="btnrow">
         <button class="btn amber" id="ld-add">+ log an experience</button>
+        ${show.custom ? '<button class="btn danger" id="ld-delete-show">Delete this show</button>' : ''}
         <button class="btn small" id="ld-close">Close</button>
       </div>
       <div id="ld-formhost"></div>
@@ -1269,6 +1467,20 @@ function openLibDetail(showId){
       back.remove();
       renderLibrary();
     });
+  };
+  const delBtn = back.querySelector('#ld-delete-show');
+  if(delBtn) delBtn.onclick = ()=>{
+    const hasLogged = state.experiences.length>0;
+    const warning = hasLogged
+      ? `Delete "${show.title}" entirely? This also removes the ${state.experiences.length} experience${state.experiences.length===1?'':'s'} logged against it. Can't be undone (export a backup first if unsure).`
+      : `Delete "${show.title}"? Can't be undone.`;
+    if(confirm(warning)){
+      delete DATA.customShows[showId];
+      delete DATA.overrides[showId];
+      saveData();
+      back.remove();
+      renderLibrary();
+    }
   };
 }
 
@@ -1350,12 +1562,17 @@ function renderVibe(){
     <div class="stat-card ai-box">
       <h3>Computer Friend</h3>
       <p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">
-        Reads your own logged data — collaborators, the stuck-at-fine flag, what's left unlogged — and writes it up. Runs instantly, entirely in this browser, on your data only. No account, no key, no network call.
+        Two ways to ask. The quick check reads your data with a fixed local rule — no account, no key,
+        no network call, ever. The live version sends a summary of the same data straight to Claude and
+        can reason past the seed list entirely — including real cross-medium connections to your anchors —
+        using your own personal API key.
       </p>
       <div class="btnrow">
-        <button class="btn amber" id="runVibeCheck">What does my data say?</button>
+        <button class="btn ghost-dark" id="runVibeCheck">Quick check (instant, local, free)</button>
+        <button class="btn amber" id="runLiveComputerFriend">✨ Ask Computer Friend (live)</button>
       </div>
       <div id="aiResponseHost"></div>
+      <div id="liveAiResponseHost"></div>
     </div>
   `;
   renderAnchors();
@@ -1370,6 +1587,7 @@ function renderVibe(){
     }
   };
   document.getElementById('runVibeCheck').onclick = ()=> runLocalVibeCheck();
+  document.getElementById('runLiveComputerFriend').onclick = ()=> runLiveComputerFriend();
 }
 
 function renderAnchors(){
@@ -1480,6 +1698,96 @@ function runLocalVibeCheck(){
   host.innerHTML = `<div class="ai-response">${lines.map(l=>escapeHtml(l)).join('</div><div class="ai-response" style="margin-top:8px;">')}</div>`;
 }
 
+async function runLiveComputerFriend(){
+  const host = document.getElementById('liveAiResponseHost');
+  const btn = document.getElementById('runLiveComputerFriend');
+  if(!getApiKey()){ openApiKeyModal(); return; }
+  const loggedShows = Object.values(allShows()).filter(s=>getState(s.id).experiences.length>0);
+  if(loggedShows.length===0){
+    if(host) host.innerHTML = `<div class="ai-response">Log a few experiences first — there's nothing for Computer Friend to read yet.</div>`;
+    return;
+  }
+
+  // same math as the local quick-check, just packaged up to hand to Claude
+  // instead of being turned into hardcoded sentences here.
+  const collabMap = {};
+  loggedShows.forEach(s=>{
+    const st = getState(s.id);
+    const ratings = st.experiences.map(e=>e.rating).filter(r=>r!==null && r!==undefined);
+    const boughtInCount = st.experiences.filter(e=>e.verdict==='boughtIn' || e.verdict==='allIn').length;
+    const total = st.experiences.length;
+    s.team.forEach(person=>{
+      if(person==='various' || person==='various artists') return;
+      if(!collabMap[person]) collabMap[person] = {ratings:[], boughtIn:0, total:0, shows:new Set()};
+      collabMap[person].ratings.push(...ratings);
+      collabMap[person].boughtIn += boughtInCount;
+      collabMap[person].total += total;
+      collabMap[person].shows.add(s.title);
+    });
+  });
+  const collabStats = Object.entries(collabMap)
+    .filter(([_,v])=>v.total>=2)
+    .map(([name,v])=>({
+      name,
+      avg: v.ratings.length ? +(v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length).toFixed(2) : null,
+      boughtInRate: +(v.boughtIn / v.total).toFixed(2),
+      showCount: v.shows.size,
+      showTitles: [...v.shows],
+    }))
+    .sort((a,b)=> b.boughtInRate - a.boughtInRate || (b.avg||0)-(a.avg||0));
+
+  const stuckTitles = [];
+  loggedShows.forEach(s=>{
+    const st = getState(s.id);
+    const rated = st.experiences.filter(e=>e.rating!==null && e.rating!==undefined);
+    const distinctCaps = new Set(rated.map(e=>e.capacity));
+    if(rated.length>=2 && distinctCaps.size>=2){
+      const ratings = rated.map(e=>e.rating);
+      const max = Math.max(...ratings), min = Math.min(...ratings);
+      const avg = ratings.reduce((a,b)=>a+b,0)/ratings.length;
+      if(max-min<=1 && avg>=2.5 && avg<=3.5) stuckTitles.push(s.title);
+    }
+  });
+
+  const dontcareTitles = Object.values(allShows()).filter(s=>getState(s.id).status==='dontcare').map(s=>s.title);
+  const loggedTitles = loggedShows.map(s=>s.title);
+  const anchors = DATA.anchors.map(a=>a.name);
+
+  const system = `You are "Computer Friend," a blunt, no-flattery analysis voice inside a personal musical-theater tracking app called The Underscore. You read the user's own logged taste data — provided below — and tell them what it actually says, citing specific shows, collaborators, and numbers by name.
+Rules:
+- No flattery, no hedging filler. Lead with the finding.
+- Treat a show sitting in the "fine" (3/5) band across two or more different formats as a real signal of quiet dislike, not neutrality — name it directly if one is given to you.
+- Never recommend anything on the "don't care" list provided below.
+- Never recommend anything on the "already logged" list provided below.
+- You MAY and SHOULD recommend musicals beyond anything mentioned in the data, drawing on your own general knowledge — that's the whole point of this live version versus a static lookup. Specifically look for genuine cross-medium connections to the "non-theater anchors" listed below (a TV writer, a band, etc. that explains taste better than a genre tag would) — real reasoning about why, not a coincidence of shared words.
+- Musicals only — never recommend a straight play.
+- Keep the whole reply under 200 words, plain prose, no headers or bullet lists.`;
+
+  const userText = `Collaborators with 2+ logged experiences, ranked by bought-in rate:
+${collabStats.length ? collabStats.map(c=>`- ${c.name}: ${Math.round(c.boughtInRate*100)}% bought-in, avg rating ${c.avg ?? 'n/a'}, across ${c.showCount} show(s): ${c.showTitles.join(', ')}`).join('\n') : '(none yet — no repeat collaborators logged)'}
+
+Shows stuck in the "fine" band across 2+ formats: ${stuckTitles.length ? stuckTitles.join(', ') : '(none)'}
+
+Already logged, do not recommend: ${loggedTitles.join(', ') || '(none)'}
+
+Don't-care list, never recommend: ${dontcareTitles.join(', ') || '(none)'}
+
+Non-theater anchors, use for cross-medium reasoning if relevant: ${anchors.join(', ') || '(none logged)'}
+
+What does this data say about my taste, and what should I check out next?`;
+
+  if(btn){ btn.disabled = true; btn.textContent = 'thinking...'; }
+  if(host) host.innerHTML = '';
+  try{
+    const text = await callClaudeAPI({system, userText, useWebSearch:false});
+    if(host) host.innerHTML = `<div class="ai-response">${escapeHtml(text).replace(/\n/g,'<br>')}</div>`;
+  }catch(err){
+    if(err.message !== 'no-key' && host) host.innerHTML = `<div class="ai-response">Something went wrong: ${escapeHtml(err.message)}</div>`;
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '✨ Ask Computer Friend (live)'; }
+  }
+}
+
 /* ============================================================
    EXPORT / IMPORT
    ============================================================ */
@@ -1493,6 +1801,7 @@ document.getElementById('exportBtn').onclick = ()=>{
   URL.revokeObjectURL(url);
 };
 document.getElementById('importBtn').onclick = ()=> document.getElementById('importFile').click();
+document.getElementById('apiKeyBtn').onclick = ()=> openApiKeyModal();
 document.getElementById('importFile').onchange = (e)=>{
   const file = e.target.files[0];
   if(!file) return;

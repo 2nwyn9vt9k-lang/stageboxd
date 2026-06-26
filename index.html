@@ -257,6 +257,8 @@
   }
   .field textarea{ resize:vertical; min-height:64px; }
   .capacity-row{ display:flex; flex-wrap:wrap; gap:8px; }
+  .capacity-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .capacity-grid .cap-chip{ display:flex; align-items:center; justify-content:center; text-align:center; border-radius:8px; padding:16px 10px; min-height:60px; }
   .rating-row{ display:flex; gap:6px; flex-wrap:wrap; }
   .rate-btn{
     font-family:var(--font-mono);
@@ -291,19 +293,21 @@
 
   /* ---------- library list ---------- */
   .lib-controls{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
+  #libList{ display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:10px; margin-bottom:6px; }
   .lib-card{
     background:var(--panel);
     border:1px solid var(--panel-line);
     border-radius:6px;
-    padding:14px 16px;
-    margin-bottom:10px;
+    padding:12px 14px;
     cursor:pointer;
+    display:flex;
+    flex-direction:column;
+    gap:4px;
   }
   .lib-card:hover{ border-color:var(--amber-dim); }
-  .lib-card-top{ display:flex; justify-content:space-between; align-items:baseline; gap:10px;}
-  .lib-card .title{ font-family:var(--font-display); font-size:17px; letter-spacing:.3px; text-transform:uppercase; }
-  .lib-card .credits{ font-family:var(--font-mono); font-size:10px; color:var(--chalk-dim); margin-top:2px; }
-  .cap-icons{ font-size:15px; letter-spacing:2px; white-space:nowrap; }
+  .lib-card .title{ font-family:var(--font-display); font-size:16px; letter-spacing:.3px; text-transform:uppercase; line-height:1.15; }
+  .lib-card .credits{ font-family:var(--font-mono); font-size:11px; color:var(--chalk); margin-top:0; }
+  .cap-icons{ font-size:15px; letter-spacing:2px; white-space:nowrap; margin-top:2px; }
 
   /* ---------- library subsections: someday / scheduled / don't-care ---------- */
   .lib-section-divider{ height:1px; background:var(--panel-line); margin:24px 0 14px; }
@@ -384,6 +388,8 @@
   }
   .collab-row{ display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:12px; padding:4px 0; border-bottom:1px solid var(--panel-line); }
   .collab-row:last-child{ border-bottom:none; }
+  .collab-name-btn{ background:none; border:none; padding:0; margin:0; font:inherit; color:var(--chalk); text-decoration:underline; text-decoration-color:var(--panel-line); cursor:pointer; }
+  .collab-name-btn:hover{ color:var(--amber); text-decoration-color:var(--amber); }
   .flag-row{ font-family:var(--font-body); font-size:13px; padding:6px 0; }
   .flag-row b{ color:var(--amber); }
 
@@ -450,7 +456,7 @@
   <button id="exportBtn">EXPORT</button>
   <button id="importBtn">IMPORT</button>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-25k</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-25l</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1097,7 +1103,7 @@ function experienceFormHtml(showId, compact){
   <div class="exp-form" data-form="${formId}">
     <div class="field">
       <label>Capacity</label>
-      <div class="capacity-row">
+      <div class="capacity-grid">
         ${CAPACITIES.map(c=>`<span class="chip cap-chip" data-cap="${c.key}">${c.icon} ${c.label}</span>`).join('')}
       </div>
     </div>
@@ -1556,15 +1562,9 @@ function renderLibList(){
     const capIcons = caps.map(c=> (CAPACITIES.find(x=>x.key===c)||{}).icon || '').join(' ') + (st.experiences.some(e=>e.performedIn) ? ' 🎭' : '');
     return `
       <div class="lib-card" data-show="${s.id}">
-        <div class="lib-card-top">
-          <div>
-            <div class="title">${escapeHtml(s.title)}</div>
-            <div class="credits">${s.year?s.year+' · ':''}${s.team.map(escapeHtml).join(', ')}</div>
-          </div>
-          <div style="text-align:right;">
-            <div class="cap-icons">${capIcons}</div>
-          </div>
-        </div>
+        <div class="title">${escapeHtml(s.title)}</div>
+        <div class="credits">${s.year?s.year+' · ':''}${s.team.map(escapeHtml).join(', ')}</div>
+        <div class="cap-icons">${capIcons}</div>
       </div>
     `;
   }).join('');
@@ -1591,17 +1591,17 @@ function renderLibSidelists(){
     .sort((a,b)=>a.title.localeCompare(b.title));
 
   host.innerHTML =
-    libSectionHtml('someday', '~ someday ~', somedayShows, ()=>'') +
-    libSectionHtml('scheduled', '📅 scheduled', scheduledShows, s=>{
+    libSectionHtml('scheduled', 'scheduled', scheduledShows, s=>{
       const st = getState(s.id);
       return st.scheduledDate ? `<span class="sub-extra"> · on the calendar for ${escapeHtml(st.scheduledDate)}</span>` : '';
     }) +
+    libSectionHtml('someday', 'someday', somedayShows, ()=>'') +
     libSectionHtml('dontcare', "don't care", dontcareShows, s=>{
       const st = getState(s.id);
       return st.dontcareReason ? `<span class="sub-extra"> · "${escapeHtml(st.dontcareReason)}"</span>` : '';
     });
 
-  ['someday','scheduled','dontcare'].forEach(key=>{
+  ['scheduled','someday','dontcare'].forEach(key=>{
     const header = document.getElementById('libSecHeader-'+key);
     if(header) header.onclick = ()=>{ libSectionOpen[key] = !libSectionOpen[key]; renderLibSidelists(); };
   });
@@ -1693,11 +1693,11 @@ function renderVibe(){
     });
   });
   const collabStats = Object.entries(collabMap)
-    .filter(([_,v])=>v.total>=2) // need at least 2 logged experiences tied to them for a real signal — same floor runLocalVibeCheck()/runLiveComputerFriend() already apply
+    .filter(([_,v])=>v.shows.size>=2) // need 2+ DIFFERENT shows, not just 2+ logged experiences — one show logged in two formats shouldn't count as "you keep buying into this person." Same floor runLocalVibeCheck()/runLiveComputerFriend() now apply.
     .map(([name,v])=>{
       const avg = v.ratings.length ? (v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length) : null;
       const boughtInRate = v.boughtIn / v.total;
-      return {name, avg, boughtInRate, showCount: v.shows.size};
+      return {name, avg, boughtInRate, showCount: v.shows.size, showTitles: [...v.shows]};
     })
     .sort((a,b)=> b.boughtInRate - a.boughtInRate || (b.avg||0)-(a.avg||0))
     .slice(0,8);
@@ -1724,8 +1724,8 @@ function renderVibe(){
 
     <div class="stat-card">
       <h3>Creative collaborators you keep buying into</h3>
-      ${collabStats.length ? collabStats.map(c=>`
-        <div class="collab-row"><span>${escapeHtml(c.name)} <span style="color:var(--chalk-dim)">(${c.showCount} show${c.showCount===1?'':'s'})</span></span>
+      ${collabStats.length ? collabStats.map((c,i)=>`
+        <div class="collab-row"><span><button class="collab-name-btn" data-collab-idx="${i}">${escapeHtml(c.name)}</button> <span style="color:var(--chalk-dim)">(${c.showCount} show${c.showCount===1?'':'s'})</span></span>
         <span>${c.avg?c.avg.toFixed(1)+'/5 avg · ':''}${Math.round(c.boughtInRate*100)}% loved or bought in</span></div>
       `).join('') : '<p style="font-family:var(--font-mono);font-size:12px;color:var(--chalk-dim);">Log a few experiences and this fills in.</p>'}
     </div>
@@ -1762,6 +1762,9 @@ function renderVibe(){
     </div>
   `;
   renderAnchors();
+  el.querySelectorAll('.collab-name-btn').forEach(btn=>{
+    btn.onclick = ()=> openCollabShowsModal(collabStats[Number(btn.dataset.collabIdx)]);
+  });
   document.getElementById('anchorAdd').onclick = ()=>{
     const inp = document.getElementById('anchorInput');
     const val = inp.value.trim();
@@ -1774,6 +1777,22 @@ function renderVibe(){
   };
   document.getElementById('runVibeCheck').onclick = ()=> runLocalVibeCheck();
   document.getElementById('runLiveComputerFriend').onclick = ()=> runLiveComputerFriend();
+}
+
+function openCollabShowsModal(c){
+  if(!c) return;
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop';
+  back.innerHTML = `
+    <div class="modal">
+      <h2 class="section-title" style="color:var(--ink)">${escapeHtml(c.name)}</h2>
+      <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">${c.showCount} show${c.showCount===1?'':'s'} behind this stat · ${Math.round(c.boughtInRate*100)}% loved or bought in${c.avg?' · '+c.avg.toFixed(1)+'/5 avg':''}</p>
+      <div>${(c.showTitles||[]).map(t=>`<div class="lib-subitem">${escapeHtml(t)}</div>`).join('') || '<p style="font-size:13px;color:#7a756d;">No titles recorded.</p>'}</div>
+      <div class="btnrow"><button class="btn small" id="collabModalClose">Close</button></div>
+    </div>
+  `;
+  document.body.appendChild(back);
+  back.querySelector('#collabModalClose').onclick = ()=> back.remove();
 }
 
 function renderAnchors(){
@@ -1817,7 +1836,7 @@ function runLocalVibeCheck(){
     });
   });
   const collabStats = Object.entries(collabMap)
-    .filter(([_,v])=>v.total>=2) // need at least 2 logged experiences tied to them for a real signal
+    .filter(([_,v])=>v.shows.size>=2) // need 2+ DIFFERENT shows, not just 2+ logged experiences
     .map(([name,v])=>({
       name,
       avg: v.ratings.length ? v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length : null,
@@ -1912,7 +1931,7 @@ async function runLiveComputerFriend(){
     });
   });
   const collabStats = Object.entries(collabMap)
-    .filter(([_,v])=>v.total>=2)
+    .filter(([_,v])=>v.shows.size>=2) // need 2+ DIFFERENT shows, not just 2+ logged experiences
     .map(([name,v])=>({
       name,
       avg: v.ratings.length ? +(v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length).toFixed(2) : null,
@@ -1953,7 +1972,7 @@ Rules:
 - Musicals only — never recommend a straight play.
 - Keep the whole reply under 200 words, plain prose, no headers or bullet lists.`;
 
-  const userText = `Collaborators with 2+ logged experiences, ranked by bought-in rate:
+  const userText = `Collaborators with 2+ different shows logged, ranked by bought-in rate:
 ${collabStats.length ? collabStats.map(c=>`- ${c.name}: ${Math.round(c.boughtInRate*100)}% bought-in, avg rating ${c.avg ?? 'n/a'}, across ${c.showCount} show(s): ${c.showTitles.join(', ')}`).join('\n') : '(none yet — no repeat collaborators logged)'}
 
 Shows stuck in the "fine" band across 2+ formats: ${stuckTitles.length ? stuckTitles.join(', ') : '(none)'}

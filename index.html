@@ -248,7 +248,7 @@
   .field input[type=text], .field input[type=date], .field textarea, .field select{
     width:100%;
     font-family:var(--font-body);
-    font-size:14px;
+    font-size:16px;
     padding:9px 10px;
     border-radius:4px;
     border:1px solid var(--paper-line);
@@ -450,7 +450,7 @@
   <button id="exportBtn">EXPORT</button>
   <button id="importBtn">IMPORT</button>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-25i</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-25k</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1684,6 +1684,7 @@ function renderVibe(){
     const boughtInCount = st.experiences.filter(e=>e.verdict==='boughtIn' || e.verdict==='allIn').length;
     const total = st.experiences.length;
     s.team.forEach(person=>{
+      if(person==='various' || person==='various artists') return; // not a nameable collaborator — same exclusion runLocalVibeCheck()/runLiveComputerFriend() already apply
       if(!collabMap[person]) collabMap[person] = {ratings:[], boughtIn:0, total:0, shows:new Set()};
       collabMap[person].ratings.push(...ratings);
       collabMap[person].boughtIn += boughtInCount;
@@ -1692,7 +1693,7 @@ function renderVibe(){
     });
   });
   const collabStats = Object.entries(collabMap)
-    .filter(([_,v])=>v.total>0)
+    .filter(([_,v])=>v.total>=2) // need at least 2 logged experiences tied to them for a real signal — same floor runLocalVibeCheck()/runLiveComputerFriend() already apply
     .map(([name,v])=>{
       const avg = v.ratings.length ? (v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length) : null;
       const boughtInRate = v.boughtIn / v.total;

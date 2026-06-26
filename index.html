@@ -450,7 +450,7 @@
   <button id="exportBtn">EXPORT</button>
   <button id="importBtn">IMPORT</button>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-25h</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-25i</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1038,16 +1038,16 @@ function renderReviewBody(show){
     body.innerHTML = `
       <div class="btnrow">
         <button class="btn amber" id="rvExperienced">I've experienced this</button>
-        <button class="btn" id="rvSomeday">~ someday ~</button>
-        <button class="btn" id="rvScheduled">📅 it's on the calendar</button>
+        <button class="btn" id="rvScheduled">It's on the calendar</button>
+        <button class="btn" id="rvSomeday">Someday</button>
         <button class="btn" id="rvDontcare">Don't care, will never care</button>
         <button class="btn" id="rvSkip">No opinion, skip</button>
       </div>
-      <p style="font-family:var(--font-mono);font-size:10px;color:var(--chalk-dim);margin-top:8px;">"On the calendar" is for a real, dated commitment (season tickets, a ticket already bought) — it'll come back as its own prompt on that date. "~ someday ~" stays open-ended, no date attached. "No opinion, skip" removes a show from this rotation for good — there's no undo yet, so only use it for ones you're confident you have nothing to go on.</p>
+      <p style="font-family:var(--font-mono);font-size:10px;color:var(--chalk-dim);margin-top:8px;">"On the calendar" is for a real, dated commitment (season tickets, a ticket already bought) — it'll come back as its own prompt on that date. "Someday" stays open-ended, no date attached. "No opinion, skip" removes a show from this rotation for good — there's no undo yet, so only use it for ones you're confident you have nothing to go on.</p>
     `;
     document.getElementById('rvExperienced').onclick = ()=>{ loggingMode=true; renderReviewBody(show); };
-    document.getElementById('rvSomeday').onclick = ()=>{ setStatus(show.id,'someday'); advanceReview(); };
     document.getElementById('rvScheduled').onclick = ()=>{ schedulingMode=true; renderReviewBody(show); };
+    document.getElementById('rvSomeday').onclick = ()=>{ setStatus(show.id,'someday'); advanceReview(); };
     document.getElementById('rvDontcare').onclick = ()=>{ dontcareMode=true; renderReviewBody(show); };
     document.getElementById('rvSkip').onclick = ()=>{ setStatus(show.id,'noopinion'); advanceReview(); };
   } else {

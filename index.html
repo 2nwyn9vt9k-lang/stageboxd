@@ -17,7 +17,14 @@
   /* Single fixed palette — Bright Turquoise & Gold. (WARM/dark mode and the
      toggle were removed by request; colors still route through these CSS
      custom properties rather than being hardcoded in rules, in case a second
-     palette is ever wanted again.) */
+     palette is ever wanted again.)
+     2026-06-27: --chalk and --chalk-dim were darkened well past --ink for
+     real contrast against the teal --stage/--panel backgrounds (chalk-dim
+     used to be LIGHTER than chalk, which is why it was nearly invisible —
+     "dim" was being read as "lower contrast" instead of "less saturated/
+     less prominent but still legible"). --ink, --amber, and --amber-dim are
+     untouched — ink already had huge headroom on the cream --paper
+     background, and the gold accent was working as intended. */
   :root{
     --stage:#1E9E99;
     --panel:#178F8A;
@@ -29,8 +36,8 @@
     --curtain:#C2613D;
     --pink:#FF4FA0;
     --ink:#0A3F3C;
-    --chalk:#0A3F3C;
-    --chalk-dim:#155A56;
+    --chalk:#04211F;
+    --chalk-dim:#082E2B;
     --title-glow:0 0 6px rgba(255,201,61,0.3);
     --bulb-glow:rgba(255,201,61,.45);
     --font-display:Impact, Haettenschweiler, 'Anton', 'Arial Narrow Bold', sans-serif;
@@ -456,7 +463,7 @@
   <button id="exportBtn">EXPORT</button>
   <button id="importBtn">IMPORT</button>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-27a</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-27b</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1768,7 +1775,7 @@ function renderVibe(){
   const comebackShows = getComebackShows(loggedShows);
 
   // "stuck at fine" flags
-  const flags = [];
+  const stuckFlags = [];
   loggedShows.forEach(s=>{
     const st = getState(s.id);
     const rated = st.experiences.filter(e=>e.rating!==null && e.rating!==undefined);
@@ -1778,7 +1785,7 @@ function renderVibe(){
       const max = Math.max(...ratings), min = Math.min(...ratings);
       const avg = ratings.reduce((a,b)=>a+b,0)/ratings.length;
       if(max-min<=1 && avg>=2.5 && avg<=3.5){
-        flags.push(`<b>${escapeHtml(s.title)}</b> sits right in the "fine" band across ${distinctCaps.size} different formats — that's usually a quieter, more reliable signal than a single bad rating. Worth naming what it actually is, rather than letting it keep getting recommended on the strength of a so-so number.`);
+        stuckFlags.push({title:s.title, formats:distinctCaps.size, avg});
       }
     }
   });
@@ -1803,7 +1810,8 @@ function renderVibe(){
 
     <div class="stat-card">
       <h3>Stuck-at-fine flags</h3>
-      ${flags.length ? flags.map(f=>`<div class="flag-row">${f}</div>`).join('') : '<p style="font-family:var(--font-mono);font-size:12px;color:var(--chalk-dim);">No "fine across every format" patterns yet. (You know which show eventually triggers this one.)</p>'}
+      <p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">Sitting flat in the "fine" band (2.5–3.5 avg, never swinging more than a point) across 2+ different formats — usually a quieter, more reliable sign of dislike than one bad rating, not actual neutrality.</p>
+      ${stuckFlags.length ? stuckFlags.map(f=>`<div class="flag-row"><b>${escapeHtml(f.title)}</b> — ${f.formats} formats logged, avg ${f.avg.toFixed(1)}/5.</div>`).join('') : '<p style="font-family:var(--font-mono);font-size:12px;color:var(--chalk-dim);">No "fine across every format" patterns yet. (You know which show eventually triggers this one.)</p>'}
     </div>
 
     <div class="stat-card">
@@ -2034,6 +2042,24 @@ async function runLiveComputerFriend(){
 
   const comebackShows = getComebackShows(loggedShows);
 
+  // The actual root-cause fix: previously this function only ever sent
+  // aggregate per-collaborator percentages and bare show titles — nothing
+  // granular enough to answer a question like "which show got the stronger
+  // reaction, X or Y." The model would reach for that specificity anyway and
+  // fabricate it. This gives it the real number for every logged experience,
+  // so any claim it makes can be checked against data that's actually there.
+  const showBreakdown = loggedShows.map(s=>{
+    const st = getState(s.id);
+    const expLines = st.experiences.map(e=>{
+      const capLabel = (CAPACITIES.find(c=>c.key===e.capacity)||{}).label || e.capacity;
+      const verdictLabel = (VERDICTS.find(v=>v.key===e.verdict)||{}).label || (e.verdict || 'no verdict given');
+      const ratingText = (e.rating!==null && e.rating!==undefined) ? `${e.rating}/5` : 'no rating given';
+      const performedTag = e.performedIn ? ', performed in this one' : '';
+      return `${capLabel}: ${ratingText}, ${verdictLabel}${performedTag}`;
+    });
+    return `${s.title} — ${expLines.join('; ')}`;
+  });
+
   const dontcareEntries = Object.values(allShows()).filter(s=>getState(s.id).status==='dontcare').map(s=>{
     const reason = getState(s.id).dontcareReason;
     return reason ? `${s.title} (reason: ${reason})` : s.title;
@@ -2044,6 +2070,7 @@ async function runLiveComputerFriend(){
   const system = `You are "Computer Friend," a blunt, no-flattery analysis voice inside a personal musical-theater tracking app called The Underscore. You read the user's own logged taste data — provided below — and tell them what it actually says, citing specific shows, collaborators, and numbers by name.
 Rules:
 - No flattery, no hedging filler. Lead with the finding.
+- A full per-show breakdown — title, format, rating, verdict — is provided below for every logged experience. You may ONLY cite a specific rating or verdict if it appears literally in that breakdown. Never infer, estimate, or guess a number for any show — including ones also mentioned elsewhere in this data, like a collaborator credit or a flag — those summaries are derived from the same breakdown and aren't a substitute for checking it directly. If you want to compare two shows, look up both in the breakdown before claiming which got the stronger reaction.
 - Treat a show sitting in the "fine" (3/5) band across two or more different formats as a real signal of quiet dislike, not neutrality — name it directly if one is given to you.
 - Treat a show logged 3+ times with nothing rated below a 4 as a real, strong favorite in its own right — even if its creative team doesn't otherwise appear among the top collaborators. A one- or two-show creative team can legitimately never clear the collaborator-level bar, so don't undersell this signal just because it's tied to a single title.
 - Never recommend anything on the "don't care" list provided below.
@@ -2053,7 +2080,10 @@ Rules:
 - Musicals only — never recommend a straight play.
 - Keep the whole reply under 200 words, plain prose, no headers or bullet lists.`;
 
-  const userText = `Collaborators with 2+ different shows logged AND a ≥50% bought-in rate, ranked by bought-in rate:
+  const userText = `Full per-show breakdown — the ONLY source you may cite a specific rating or verdict from:
+${showBreakdown.join('\n')}
+
+Collaborators with 2+ different shows logged AND a ≥50% bought-in rate, ranked by bought-in rate:
 ${collabStats.length ? collabStats.map(c=>`- ${c.name}: ${Math.round(c.boughtInRate*100)}% bought-in, avg rating ${c.avg ?? 'n/a'}, across ${c.showCount} show(s): ${c.showTitles.join(', ')}`).join('\n') : '(none yet — no repeat collaborators logged)'}
 
 Shows logged 3+ times with nothing rated below a 4 — a real personal favorite even when its creative team never wrote a second show worth flagging above: ${comebackShows.length ? comebackShows.map(c=>`${c.title} (avg ${c.avg.toFixed(2)}, ${c.count} experiences)`).join(', ') : '(none yet)'}

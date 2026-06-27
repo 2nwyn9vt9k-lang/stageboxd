@@ -472,7 +472,7 @@
   <button id="exportBtn">EXPORT</button>
   <button id="importBtn">IMPORT</button>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-27e</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-27f</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -742,7 +742,7 @@ const VERDICTS = [
    ============================================================ */
 const STORAGE_KEY = 'ledger-data';
 const API_KEY_STORAGE = 'underscore-api-key';
-let DATA = { overrides:{}, customShows:{}, anchors:[] };
+let DATA = { overrides:{}, customShows:{}, anchors:[], vibeHistory:[] };
 let dataLoaded = false;
 
 /* ---- personal Anthropic API key: deliberately its own storage key, kept
@@ -767,6 +767,7 @@ function loadData(){
       DATA.overrides = DATA.overrides || {};
       DATA.customShows = DATA.customShows || {};
       DATA.anchors = DATA.anchors || [];
+      DATA.vibeHistory = DATA.vibeHistory || [];
     }
   }catch(e){
     // no existing data yet, or storage is blocked — checkStorageHealth() catches that case
@@ -1147,6 +1148,21 @@ function goToShowInReview(id){
   schedulingMode = false;
   dontcareMode = false;
   renderReview();
+}
+
+// Same idea as goToShowInReview() above, but callable from Vibe Check, which
+// isn't the active tab yet — clicking a rec title there needs to actually
+// switch tabs first. Reuses the real nav button's own click handler (which
+// already does the active-class swap + renderReview()) instead of copying
+// that logic a second time.
+function goToShowFromVibe(id){
+  forcedReviewId = id;
+  loggingMode = false;
+  schedulingMode = false;
+  dontcareMode = false;
+  const reviewNavBtn = document.querySelector("nav button[data-tab='review']");
+  if(reviewNavBtn) reviewNavBtn.click();
+  else renderReview();
 }
 
 /* ============================================================
@@ -1901,6 +1917,14 @@ function renderVibe(){
   };
   document.getElementById('runVibeCheck').onclick = ()=> runLocalVibeCheck();
   document.getElementById('runLiveComputerFriend').onclick = ()=> runLiveComputerFriend();
+
+  // Persistence fix: a Quick Check result used to vanish the moment you left
+  // this tab or refreshed. DATA.vibeHistory keeps the last 10 runs in
+  // storage (see runLocalVibeCheck()); redisplay the most recent one here so
+  // it survives a tab switch / app relaunch instead of needing a re-click.
+  if(DATA.vibeHistory && DATA.vibeHistory.length){
+    renderVibeCheckBox(DATA.vibeHistory[DATA.vibeHistory.length-1]);
+  }
 }
 
 function openCollabShowsModal(c){
@@ -2013,7 +2037,7 @@ function runLocalVibeCheck(){
     for(const s of Object.values(allShows())){
       if(touchedIds.has(s.id) || dontcareIds.has(s.id)) continue;
       if(s.team.includes(c.name)){
-        recs.push({title:s.title, because:c.name});
+        recs.push({title:s.title, because:c.name, showId:s.id});
         if(recs.length>=3) break outer;
       }
     }
@@ -2043,7 +2067,69 @@ function runLocalVibeCheck(){
   if(DATA.anchors.length){
     lines.push(`(You've also got ${DATA.anchors.map(a=>a.name).join(', ')} logged as non-theater anchors. This local version can only match by name on the seed list's own creative-team data — it can't reason across mediums the way a live model could. The connection's still there for you to draw yourself.)`);
   }
-  host.innerHTML = `<div class="ai-response">${lines.map(l=>escapeHtml(l)).join('</div><div class="ai-response" style="margin-top:8px;">')}</div>`;
+
+  // Persistence fix: this result used to just get written to the DOM and
+  // forgotten the moment you left the tab. Now it's saved into ledger-data
+  // (DATA.vibeHistory) so renderVibe() can put it straight back on screen
+  // next time, and so each rec below stays clickable/ratable after the fact.
+  // Kept to the last 10 runs — recs already get filtered against current
+  // data at render time, so an old run never goes stale or misleading.
+  DATA.vibeHistory = DATA.vibeHistory || [];
+  const entry = { id:'vh'+Date.now(), ts:Date.now(), lines, recs };
+  DATA.vibeHistory.push(entry);
+  if(DATA.vibeHistory.length>10) DATA.vibeHistory = DATA.vibeHistory.slice(-10);
+  saveData();
+  renderVibeCheckBox(entry);
+}
+
+// One rec row inside the Quick Check box. Looks up the show's CURRENT status
+// live rather than trusting whatever was true when the run was saved, so an
+// old persisted run never shows a stale "Someday" button for a show you've
+// since logged, don't-cared, or already rated someday from somewhere else.
+function vibeRecRowHtml(rec){
+  const show = getShow(rec.showId);
+  if(!show){
+    return `<div class="flag-row" style="opacity:.6;"><i>${escapeHtml(rec.title)}</i> — no longer in your data.</div>`;
+  }
+  const st = getState(rec.showId);
+  let rightSide;
+  if(st.experiences.length>0){
+    rightSide = `<span style="color:var(--chalk-dim);font-size:11px;">already logged</span>`;
+  } else if(st.status==='someday'){
+    rightSide = `<span style="color:var(--chalk-dim);font-size:11px;">✓ someday</span>`;
+  } else if(st.status==='dontcare'){
+    rightSide = `<span style="color:var(--chalk-dim);font-size:11px;">marked don't-care</span>`;
+  } else if(st.status==='scheduled'){
+    rightSide = `<span style="color:var(--chalk-dim);font-size:11px;">on the calendar</span>`;
+  } else {
+    rightSide = `<button class="btn ghost-dark small" data-vibe-rec-someday="${rec.showId}">Someday</button>`;
+  }
+  return `<div class="flag-row" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+    <span><button class="collab-name-btn" data-vibe-rec-go="${rec.showId}">${escapeHtml(rec.title)}</button> <span style="color:var(--chalk-dim);font-size:11px;">(via ${escapeHtml(rec.because)})</span></span>
+    ${rightSide}
+  </div>`;
+}
+
+// Renders one persisted Quick Check entry into #aiResponseHost — called both
+// right after a fresh run and on tab-open to restore the last saved one.
+function renderVibeCheckBox(entry){
+  const host = document.getElementById('aiResponseHost');
+  if(!host || !entry) return;
+  const when = new Date(entry.ts).toLocaleString();
+  host.innerHTML = `
+    <div class="ai-response">${entry.lines.map(l=>escapeHtml(l)).join('</div><div class="ai-response" style="margin-top:8px;">')}</div>
+    ${entry.recs && entry.recs.length ? `<div style="margin-top:10px;">${entry.recs.map(vibeRecRowHtml).join('')}</div>` : ''}
+    <p style="font-family:var(--font-mono);font-size:10px;color:var(--chalk-dim);margin-top:8px;">Last checked ${escapeHtml(when)}.</p>
+  `;
+  host.querySelectorAll('[data-vibe-rec-go]').forEach(btn=>{
+    btn.onclick = ()=> goToShowFromVibe(btn.dataset.vibeRecGo);
+  });
+  host.querySelectorAll('[data-vibe-rec-someday]').forEach(btn=>{
+    btn.onclick = ()=>{
+      setStatus(btn.dataset.vibeRecSomeday, 'someday');
+      renderVibeCheckBox(entry); // refresh just this box — the row's own state updates in place, no need to touch the rest of the tab
+    };
+  });
 }
 
 async function runLiveComputerFriend(){

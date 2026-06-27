@@ -24,7 +24,11 @@
      "dim" was being read as "lower contrast" instead of "less saturated/
      less prominent but still legible"). --ink, --amber, and --amber-dim are
      untouched — ink already had huge headroom on the cream --paper
-     background, and the gold accent was working as intended. */
+     background, and the gold accent was working as intended.
+     2026-06-27 (later): marquee h1 sized up and given a crisp no-blur
+     depth shadow alongside the existing soft glow — see --title-glow's
+     comment at its declaration for why blur radius itself was left
+     alone. */
   :root{
     --stage:#1E9E99;
     --panel:#178F8A;
@@ -38,7 +42,10 @@
     --ink:#0A3F3C;
     --chalk:#04211F;
     --chalk-dim:#082E2B;
-    --title-glow:0 0 6px rgba(255,201,61,0.3);
+    /* Blur radius (6px) is the parameter that caused the old "jumbled,
+       illegible" glow — it's what fills in the gaps between letters on a
+       bold condensed face. Left untouched on purpose; only opacity moved. */
+    --title-glow:0 0 6px rgba(255,201,61,0.42);
     --bulb-glow:rgba(255,201,61,.45);
     --font-display:Impact, Haettenschweiler, 'Anton', 'Arial Narrow Bold', sans-serif;
     --font-body:'Source Serif 4', Georgia, serif;
@@ -64,11 +71,11 @@
   }
   .marquee h1{
     font-family:var(--font-display);
-    font-size:clamp(28px,6vw,46px);
-    letter-spacing:2px;
+    font-size:clamp(32px,7.5vw,54px);
+    letter-spacing:3px;
     margin:0;
     color:var(--amber);
-    text-shadow:var(--title-glow);
+    text-shadow:1px 2px 0 var(--panel-line), var(--title-glow);
     text-transform:uppercase;
   }
   .marquee .sub{
@@ -328,6 +335,8 @@
   .lib-subsection-body{ padding:8px 4px 6px; }
   .lib-subitem{ font-family:var(--font-body); font-size:13px; padding:5px 0; color:var(--chalk); }
   .lib-subitem .sub-extra{ font-family:var(--font-mono); font-size:11px; color:var(--chalk-dim); }
+  .lib-subitem-clickable{ cursor:pointer; }
+  .lib-subitem-clickable:hover{ color:var(--amber); }
 
   /* ---------- empty states ---------- */
   .empty{
@@ -463,7 +472,7 @@
   <button id="exportBtn">EXPORT</button>
   <button id="importBtn">IMPORT</button>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-27b</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-27e</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1561,19 +1570,29 @@ Suggest exactly 8 shows.`;
    LIBRARY TAB
    ============================================================ */
 let libFilter = { text:'', cap:null };
-let libSectionOpen = { someday:false, scheduled:false, dontcare:false };
+let libSectionOpen = { custompending:false, someday:false, scheduled:false, dontcare:false };
 
 function renderLibrary(){
   const el = document.getElementById('tab-library');
+  // BUG FIX (2026-06-27): this used to always render the search box blank and
+  // every capacity chip unselected, no matter what libFilter actually held —
+  // since libFilter is a module-level variable that's never reset on its own,
+  // revisiting the tab (even just switching nav tabs and back) looked like a
+  // clean slate while a stale text/cap filter silently kept suppressing
+  // results underneath. Now the controls are drawn FROM libFilter, so a
+  // leftover filter is always visible, and there's an explicit way to clear
+  // it without needing to fully reload the app.
+  const filtersActive = !!(libFilter.text || libFilter.cap);
   el.innerHTML = `
     <h2 class="section-title">Library</h2>
     <p class="section-sub">everything you've made a call on, plus search to add anything new</p>
     <div class="lib-controls">
-      <input type="text" id="libSearch" placeholder="search title..." style="flex:1;min-width:160px;font-family:var(--font-body);padding:8px 10px;border-radius:4px;border:1px solid var(--panel-line);background:var(--panel);color:var(--chalk);">
+      <input type="text" id="libSearch" placeholder="search title..." value="${escapeHtml(libFilter.text)}" style="flex:1;min-width:160px;font-family:var(--font-body);padding:8px 10px;border-radius:4px;border:1px solid var(--panel-line);background:var(--panel);color:var(--chalk);">
+      ${filtersActive ? '<button class="btn ghost-dark small" id="libClearFilters">✕ clear filters</button>' : ''}
       <button class="btn ghost-dark small" id="libAddCustom">+ add a show</button>
     </div>
     <div class="lib-controls">
-      ${CAPACITIES.map(c=>`<span class="chip lib-cap-filter" data-cap="${c.key}">${c.icon} ${c.label}</span>`).join('')}
+      ${CAPACITIES.map(c=>`<span class="chip lib-cap-filter${libFilter.cap===c.key?' on':''}" data-cap="${c.key}">${c.icon} ${c.label}</span>`).join('')}
     </div>
     <div id="libList"></div>
 
@@ -1582,6 +1601,8 @@ function renderLibrary(){
   `;
   document.getElementById('libSearch').oninput = (e)=>{ libFilter.text = e.target.value.toLowerCase(); renderLibList(); renderLibSidelists(); };
   document.getElementById('libAddCustom').onclick = ()=> openAddCustomModal((newId)=> openLibDetail(newId));
+  const clearBtn = document.getElementById('libClearFilters');
+  if(clearBtn) clearBtn.onclick = ()=>{ libFilter = {text:'', cap:null}; renderLibrary(); };
   document.querySelectorAll('.lib-cap-filter').forEach(chip=>{
     chip.onclick = ()=>{
       const c = chip.dataset.cap;
@@ -1631,7 +1652,15 @@ function renderLibList(){
 
 /* Someday / scheduled / don't-care: each its own collapsible section, with its
    own visible count, so they don't get buried inside the (potentially much
-   longer) list of actually-logged shows as that list grows. */
+   longer) list of actually-logged shows as that list grows.
+   2026-06-27: added a fourth section, "pending custom shows" — custom shows
+   with neither a status NOR a logged experience. This is the bucket a
+   duplicate accidental add (e.g. the BBAJ add-modal bug, fixed in 25n) falls
+   into: invisible to the main grid (no experience), invisible to the other
+   three sections (no status), reachable before this fix only by randomly
+   cycling Review's shuffled queue until it happened to come up. Unlike the
+   other three sections, its items are clickable — that's the entire point,
+   since the only way out of this bucket is opening the show to delete it. */
 function renderLibSidelists(){
   const host = document.getElementById('libSidelists');
   if(!host) return;
@@ -1639,6 +1668,8 @@ function renderLibSidelists(){
   const textFilter = libFilter.text;
   const matchesText = s => !textFilter || s.title.toLowerCase().includes(textFilter);
 
+  const pendingCustomShows = shows.filter(s=> s.custom && getState(s.id).status===null && getState(s.id).experiences.length===0 && matchesText(s))
+    .sort((a,b)=>a.title.localeCompare(b.title));
   const somedayShows = shows.filter(s=> getState(s.id).status==='someday' && matchesText(s))
     .sort((a,b)=>a.title.localeCompare(b.title));
   const scheduledShows = shows.filter(s=> getState(s.id).status==='scheduled' && matchesText(s))
@@ -1647,6 +1678,8 @@ function renderLibSidelists(){
     .sort((a,b)=>a.title.localeCompare(b.title));
 
   host.innerHTML =
+    (pendingCustomShows.length ? `<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin:8px 0 2px;">Custom shows with no status and nothing logged yet — usually an accidental duplicate add. Tap one to open and delete it.</p>` : '') +
+    libSectionHtml('custompending', 'pending custom shows', pendingCustomShows, ()=>'', true) +
     libSectionHtml('scheduled', 'scheduled', scheduledShows, s=>{
       const st = getState(s.id);
       return st.scheduledDate ? `<span class="sub-extra"> · on the calendar for ${escapeHtml(st.scheduledDate)}</span>` : '';
@@ -1657,13 +1690,16 @@ function renderLibSidelists(){
       return st.dontcareReason ? `<span class="sub-extra"> · "${escapeHtml(st.dontcareReason)}"</span>` : '';
     });
 
-  ['scheduled','someday','dontcare'].forEach(key=>{
+  ['custompending','scheduled','someday','dontcare'].forEach(key=>{
     const header = document.getElementById('libSecHeader-'+key);
     if(header) header.onclick = ()=>{ libSectionOpen[key] = !libSectionOpen[key]; renderLibSidelists(); };
   });
+  host.querySelectorAll('.lib-subitem-clickable').forEach(item=>{
+    item.onclick = ()=> openLibDetail(item.dataset.show);
+  });
 }
 
-function libSectionHtml(key, label, list, extraFn){
+function libSectionHtml(key, label, list, extraFn, clickable){
   const open = libSectionOpen[key];
   return `
     <div class="lib-subsection">
@@ -1673,7 +1709,7 @@ function libSectionHtml(key, label, list, extraFn){
       </div>
       ${open ? `<div class="lib-subsection-body">${
         list.length
-          ? list.map(s=>`<div class="lib-subitem">${escapeHtml(s.title)}${s.year?` <span class="sub-extra">(${s.year})</span>`:''}${extraFn(s)}</div>`).join('')
+          ? list.map(s=>`<div class="lib-subitem${clickable?' lib-subitem-clickable':''}"${clickable?` data-show="${s.id}"`:''}>${escapeHtml(s.title)}${s.year?` <span class="sub-extra">(${s.year})</span>`:''}${extraFn(s)}</div>`).join('')
           : `<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);">none</p>`
       }</div>` : ''}
     </div>
@@ -1690,7 +1726,7 @@ function openLibDetail(showId){
       <h2 class="section-title" style="color:var(--ink)">${escapeHtml(show.title)}</h2>
       <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">${show.year?show.year+' · ':''}${show.team.map(escapeHtml).join(', ')}</p>
       ${show.tags && show.tags.length ? `<div class="tags" style="margin-bottom:6px;">${show.tags.map(t=>`<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
-      <div id="libDetailExp">${state.experiences.map(e=>expEntryHtml(showId,e)).join('') || "<p style=\"font-size:13px;color:#7a756d;\">No experiences logged. Just a someday or dont-care flag.</p>"}</div>
+      <div id="libDetailExp">${state.experiences.map(e=>expEntryHtml(showId,e)).join('') || "<p style=\"font-size:13px;color:#7a756d;\">No experiences logged yet.</p>"}</div>
       <div class="btnrow">
         <button class="btn amber" id="ld-add">+ log an experience</button>
         ${show.custom ? '<button class="btn danger" id="ld-delete-show">Delete this show</button>' : ''}
@@ -1755,11 +1791,19 @@ function renderVibe(){
     const total = st.experiences.length;
     s.team.forEach(person=>{
       if(person==='various' || person==='various artists') return; // not a nameable collaborator — same exclusion runLocalVibeCheck()/runLiveComputerFriend() already apply
-      if(!collabMap[person]) collabMap[person] = {ratings:[], boughtIn:0, total:0, shows:new Set()};
+      if(!collabMap[person]) collabMap[person] = {ratings:[], boughtIn:0, total:0, shows:new Set(), breakdown:{}};
       collabMap[person].ratings.push(...ratings);
       collabMap[person].boughtIn += boughtInCount;
       collabMap[person].total += total;
       collabMap[person].shows.add(s.title);
+      // Per-show experience list, for the audit popup. A show with 2+ logged
+      // experiences (e.g. listened AND watched a bootleg) feeds 2+ data
+      // points into this person's avg/bought-in numbers even though it's
+      // still just 1 entry in `shows` — the popup used to only list show
+      // titles, with no way to see that, which is exactly what made the
+      // Laurents/Sondheim numbers confusing to audit by eye this session.
+      if(!collabMap[person].breakdown[s.title]) collabMap[person].breakdown[s.title] = [];
+      collabMap[person].breakdown[s.title].push(...st.experiences.map(e=>({rating:e.rating, verdict:e.verdict})));
     });
   });
   const collabStats = Object.entries(collabMap)
@@ -1767,7 +1811,8 @@ function renderVibe(){
     .map(([name,v])=>{
       const avg = v.ratings.length ? (v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length) : null;
       const boughtInRate = v.boughtIn / v.total;
-      return {name, avg, boughtInRate, showCount: v.shows.size, showTitles: [...v.shows]};
+      const showBreakdown = [...v.shows].map(title=>({title, experiences: v.breakdown[title]||[]}));
+      return {name, avg, boughtInRate, showCount: v.shows.size, showTitles: [...v.shows], showBreakdown};
     })
     .sort((a,b)=> b.boughtInRate - a.boughtInRate || (b.avg||0)-(a.avg||0))
     .slice(0,8);
@@ -1862,11 +1907,23 @@ function openCollabShowsModal(c){
   if(!c) return;
   const back = document.createElement('div');
   back.className = 'modal-backdrop';
+  const breakdownHtml = (c.showBreakdown && c.showBreakdown.length)
+    ? c.showBreakdown.map(sb=>{
+        const expCount = sb.experiences.length;
+        const expLines = sb.experiences.map(e=>{
+          const ratingText = (e.rating!==null && e.rating!==undefined) ? `${RATING_LABELS[e.rating]} (${e.rating}/5)` : 'no rating';
+          const verdictLabel = (VERDICTS.find(v=>v.key===e.verdict)||{}).label || 'no verdict';
+          return `${ratingText} · ${verdictLabel}`;
+        }).join(', ');
+        return `<div class="lib-subitem"><b>${escapeHtml(sb.title)}</b> <span class="sub-extra">— ${expCount} experience${expCount===1?'':'s'} logged: ${expLines}</span></div>`;
+      }).join('')
+    : (c.showTitles||[]).map(t=>`<div class="lib-subitem">${escapeHtml(t)}</div>`).join('') || '<p style="font-size:13px;color:#7a756d;">No titles recorded.</p>';
   back.innerHTML = `
     <div class="modal">
       <h2 class="section-title" style="color:var(--ink)">${escapeHtml(c.name)}</h2>
       <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">${c.showCount} show${c.showCount===1?'':'s'} behind this stat · ${Math.round(c.boughtInRate*100)}% loved or bought in${c.avg?' · '+c.avg.toFixed(1)+'/5 avg':''}</p>
-      <div>${(c.showTitles||[]).map(t=>`<div class="lib-subitem">${escapeHtml(t)}</div>`).join('') || '<p style="font-size:13px;color:#7a756d;">No titles recorded.</p>'}</div>
+      <p style="font-family:var(--font-mono);font-size:10px;color:var(--chalk-dim);margin-top:-4px;">Note: the avg/percentage above are computed per logged experience, not per show — a show logged more than once (e.g. listened AND watched) contributes more than one data point below.</p>
+      <div>${breakdownHtml}</div>
       <div class="btnrow"><button class="btn small" id="collabModalClose">Close</button></div>
     </div>
   `;

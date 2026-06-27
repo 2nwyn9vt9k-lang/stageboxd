@@ -321,7 +321,13 @@
   .lib-card:hover{ border-color:var(--amber-dim); }
   .lib-card .title{ font-family:var(--font-display); font-size:16px; letter-spacing:.3px; text-transform:uppercase; line-height:1.15; }
   .lib-card .credits{ font-family:var(--font-mono); font-size:11px; color:var(--chalk); margin-top:0; }
-  .cap-icons{ font-size:15px; letter-spacing:2px; white-space:nowrap; margin-top:2px; }
+  /* margin-top:auto (not a fixed value) deliberately — #libList is a CSS
+     grid, which already stretches every card in a row to match the tallest
+     one by default, so each .lib-card (a flex column) has real leftover
+     space to give away. Putting that leftover space here, on the LAST child,
+     pins the icon row to the bottom of every card uniformly, regardless of
+     how many lines the title/credits text above it wrapped to. */
+  .cap-icons{ font-size:15px; letter-spacing:2px; white-space:nowrap; margin-top:auto; }
 
   /* ---------- library subsections: someday / scheduled / don't-care ---------- */
   .lib-section-divider{ height:1px; background:var(--panel-line); margin:24px 0 14px; }
@@ -493,7 +499,7 @@
   <button id="exportBtn">EXPORT</button>
   <button id="importBtn">IMPORT</button>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-27g</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-27h</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -860,8 +866,24 @@ function addExperience(id, exp){
   const o = ensureOverride(id);
   exp.id = 'e' + Date.now() + Math.floor(Math.random()*1000);
   o.experiences.push(exp);
-  o.status = null; // logging an experience supersedes someday/scheduled/dontcare
-  o.scheduledDate = null;
+  // someday / dontcare / noopinion all mean "haven't experienced this yet" —
+  // once you've logged anything, that's no longer true, so these three
+  // always clear. 'scheduled' is different on purpose: it's an upcoming,
+  // unrelated date that can coexist with experiences already logged in
+  // OTHER capacities (e.g. you've got the OBC and a pro-shot logged for a
+  // show, but you're also seeing it live for the first time next month) — so
+  // a still-future date survives logging something else in the meantime. It
+  // only clears here once its date has actually arrived, on the assumption
+  // that whatever you just logged fulfilled it — the same assumption the
+  // due-banner's "log it now" button already depends on to make its prompt
+  // go away once you act on it.
+  const todayStr = new Date().toISOString().slice(0,10);
+  if(o.status==='someday' || o.status==='dontcare' || o.status==='noopinion'){
+    o.status = null;
+  } else if(o.status==='scheduled' && (!o.scheduledDate || o.scheduledDate <= todayStr)){
+    o.status = null;
+    o.scheduledDate = null;
+  }
   saveData();
 }
 function updateExperience(id, expId, patch){
@@ -1196,6 +1218,28 @@ function goToShowInReview(id){
   loggingMode = false;
   schedulingMode = false;
   dontcareMode = false;
+  renderReview();
+}
+
+// Same idea as goToShowFromVibe() below, but drops straight into the
+// experience-logging form instead of the normal someday/scheduled/dontcare/
+// log button row — for a rec's "Log it" button, where tapping it already
+// means "I've experienced this," not "remind me later." Can't just flip
+// loggingMode and reuse the nav button's own click handler the way
+// goToShowFromVibe() does: that handler only calls renderReview() when
+// loggingMode is false (so switching tabs mid-form elsewhere doesn't get
+// silently clobbered), so this does the tab-switch bookkeeping itself.
+function goToShowFromVibeToLog(id){
+  forcedReviewId = id;
+  loggingMode = true;
+  schedulingMode = false;
+  dontcareMode = false;
+  document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  const reviewNavBtn = document.querySelector("nav button[data-tab='review']");
+  if(reviewNavBtn) reviewNavBtn.classList.add('active');
+  const reviewTabEl = document.getElementById('tab-review');
+  if(reviewTabEl) reviewTabEl.classList.add('active');
   renderReview();
 }
 
@@ -1635,7 +1679,15 @@ Suggest exactly 8 shows.`;
    LIBRARY TAB
    ============================================================ */
 let libFilter = { text:'', cap:null };
-let libSectionOpen = { custompending:false, someday:false, scheduled:false, dontcare:false };
+// custompending defaults OPEN (the other three stay closed) — unlike
+// someday/scheduled/dontcare, this bucket only ever holds accidental junk
+// (a duplicate add, an in-progress custom show abandoned mid-fill), and
+// there's never a reason to want it hidden by default. This is what was
+// actually missing for the BBAJ duplicates: the fix that routes them here
+// worked, the section was just collapsed by default the same as the other
+// three, making "nothing's here" and "something's here but hidden" look
+// identical at a glance.
+let libSectionOpen = { custompending:true, someday:false, scheduled:false, dontcare:false };
 
 function renderLibrary(){
   const el = document.getElementById('tab-library');
@@ -1781,6 +1833,72 @@ function libSectionHtml(key, label, list, extraFn, clickable){
   `;
 }
 
+// "On the calendar" control for Library's detail popup — the gap Cameron
+// hit directly: once a show has any logged experience, Review's own
+// someday/scheduled/dontcare/skip button row is permanently out of reach for
+// it (buildReviewQueue() excludes anything with experiences.length>0), so
+// there was previously no way at all to flag a real future date against a
+// show you'd already partly experienced (OBC + pro-shot logged, but seeing
+// it live for the first time next month). Deliberately scoped to JUST "on
+// the calendar," not "someday" too — a literal future date is an
+// independent fact that can coexist with experiences already logged in
+// other capacities; "someday" stays what it's always meant, a flag
+// exclusively for shows you haven't started anything with yet (addExperience()
+// still clears it unconditionally the moment any experience is logged).
+function ldCalendarHtml(showId){
+  const st = getState(showId);
+  if(st.status === 'scheduled'){
+    return `<div class="ld-calendar-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12px;">
+      <span>📅 <b>On the calendar for ${escapeHtml(st.scheduledDate||'')}</b></span>
+      <button class="btn ghost-dark small" id="ld-cal-change">change date</button>
+      <button class="btn small" id="ld-cal-clear">remove</button>
+    </div>`;
+  }
+  return `<div class="ld-calendar-row">
+    <button class="btn ghost-dark small" id="ld-cal-set">+ it's on the calendar</button>
+  </div>`;
+}
+
+// Re-renders just #ld-calendar in place and re-wires it — same in-place-
+// refresh pattern openEditCustomShowModal's onSaved callback already uses
+// for #ld-credits/#ld-tags, so setting/changing/removing a date never closes
+// or reloads the whole popup around it.
+function wireLdCalendar(back, showId){
+  const host = back.querySelector('#ld-calendar');
+  if(!host) return;
+  const refresh = ()=>{ host.innerHTML = ldCalendarHtml(showId); wireLdCalendar(back, showId); };
+  const setBtn = host.querySelector('#ld-cal-set');
+  const changeBtn = host.querySelector('#ld-cal-change');
+  const clearBtn = host.querySelector('#ld-cal-clear');
+  const openDatePrompt = (existingDate)=>{
+    const todayStr = new Date().toISOString().slice(0,10);
+    host.innerHTML = `
+      <div class="field" style="margin:0 0 6px;">
+        <label>What date is it on the calendar for?</label>
+        <input type="date" id="ld-cal-date-input" value="${escapeHtml(existingDate||todayStr)}">
+      </div>
+      <div class="btnrow" style="margin-top:0;">
+        <button class="btn amber small" id="ld-cal-confirm">Confirm</button>
+        <button class="btn small" id="ld-cal-cancel">Cancel</button>
+      </div>
+    `;
+    host.querySelector('#ld-cal-confirm').onclick = ()=>{
+      const val = host.querySelector('#ld-cal-date-input').value;
+      if(!val){ alert('Pick a date first, or cancel.'); return; }
+      setScheduled(showId, val);
+      refresh();
+    };
+    host.querySelector('#ld-cal-cancel').onclick = refresh;
+  };
+  if(setBtn) setBtn.onclick = ()=> openDatePrompt(null);
+  if(changeBtn) changeBtn.onclick = ()=> openDatePrompt(getState(showId).scheduledDate);
+  if(clearBtn) clearBtn.onclick = ()=>{
+    if(!confirm('Remove this calendar entry?')) return;
+    setStatus(showId, null);
+    refresh();
+  };
+}
+
 function openLibDetail(showId){
   const show = getShow(showId);
   const state = getState(showId);
@@ -1791,6 +1909,7 @@ function openLibDetail(showId){
       <h2 class="section-title" style="color:var(--ink)">${escapeHtml(show.title)}</h2>
       <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;" id="ld-credits">${show.year?show.year+' · ':''}${show.team.map(escapeHtml).join(', ')||(show.custom?'creative team unknown':'')}</p>
       <div id="ld-tags">${show.tags && show.tags.length ? `<div class="tags" style="margin-bottom:6px;">${show.tags.map(t=>`<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>` : ''}</div>
+      <div id="ld-calendar" style="margin-bottom:8px;">${ldCalendarHtml(showId)}</div>
       <div id="libDetailExp">${state.experiences.map(e=>expEntryHtml(showId,e)).join('') || "<p style=\"font-size:13px;color:#7a756d;\">No experiences logged yet.</p>"}</div>
       <div class="btnrow">
         <button class="btn amber" id="ld-add">+ log an experience</button>
@@ -1802,6 +1921,7 @@ function openLibDetail(showId){
     </div>
   `;
   document.body.appendChild(back);
+  wireLdCalendar(back, showId);
   back.querySelector('#ld-close').onclick = ()=>{ back.remove(); renderLibrary(); };
   back.querySelector('#ld-add').onclick = ()=>{
     const host = back.querySelector('#ld-formhost');
@@ -1950,7 +2070,9 @@ function renderVibe(){
     <h2 class="section-title">Vibe Check</h2>
     <p class="section-sub">what the ledger says about your actual taste, not the popular consensus</p>
 
-    ${statCardHtml('collab', 'Creative collaborators you keep buying into', '', '',
+    ${statCardHtml('collab', 'Creative collaborators you keep buying into',
+      '<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">Composers, lyricists, and book writers you keep actually buying into — not just worked with often. Needs 2+ different shows logged against that name and a real bought-in rate of 50% or higher, so two soured-on titles from the same writer can\'t sneak in on show-count alone.</p>',
+      '',
       collabStats.length ? collabStats.map((c,i)=>`
         <div class="collab-row"><span><button class="collab-name-btn" data-collab-idx="${i}">${escapeHtml(c.name)}</button> <span style="color:var(--chalk-dim)">(${c.showCount} show${c.showCount===1?'':'s'})</span></span>
         <span>${c.avg?c.avg.toFixed(1)+'/5 avg · ':''}${Math.round(c.boughtInRate*100)}% loved or bought in</span></div>
@@ -2257,7 +2379,10 @@ function vibeRecRowHtml(entry, rec, idx){
   if(!rec.showId){
     return `<div class="flag-row" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
       <span><i>${escapeHtml(rec.title)}</i> <span style="color:var(--chalk-dim);font-size:11px;">(via ${escapeHtml(rec.because||'')} · not in your library yet)</span></span>
-      <button class="btn ghost-dark small" data-vibe-rec-someday="${someKey}">Someday</button>
+      <span style="display:inline-flex;gap:6px;">
+        <button class="btn ghost-dark small" data-vibe-rec-log="${someKey}">Log it</button>
+        <button class="btn ghost-dark small" data-vibe-rec-someday="${someKey}">Someday</button>
+      </span>
     </div>`;
   }
   const show = getShow(rec.showId);
@@ -2275,7 +2400,16 @@ function vibeRecRowHtml(entry, rec, idx){
   } else if(st.status==='scheduled'){
     rightSide = `<span style="color:var(--chalk-dim);font-size:11px;">on the calendar</span>`;
   } else {
-    rightSide = `<button class="btn ghost-dark small" data-vibe-rec-someday="${someKey}">Someday</button>`;
+    // Nothing logged, no status — the case that, before this fix, only ever
+    // offered "Someday" plus a clickable title that's easy to miss as the
+    // actual way in. "Log it" jumps straight into the experience form for a
+    // show you've genuinely already seen, instead of two indirect taps
+    // (title, then "I've experienced this") with no obvious signal either
+    // step exists.
+    rightSide = `<span style="display:inline-flex;gap:6px;">
+      <button class="btn ghost-dark small" data-vibe-rec-log="${someKey}">Log it</button>
+      <button class="btn ghost-dark small" data-vibe-rec-someday="${someKey}">Someday</button>
+    </span>`;
   }
   return `<div class="flag-row" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
     <span><button class="collab-name-btn" data-vibe-rec-go="${rec.showId}">${escapeHtml(rec.title)}</button> <span style="color:var(--chalk-dim);font-size:11px;">(via ${escapeHtml(rec.because||'')})</span></span>
@@ -2314,6 +2448,24 @@ function renderVibeResultBox(){
   if(vibeResultCollapsed) return;
   host.querySelectorAll('[data-vibe-rec-go]').forEach(btn=>{
     btn.onclick = ()=> goToShowFromVibe(btn.dataset.vibeRecGo);
+  });
+  host.querySelectorAll('[data-vibe-rec-log]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const [entryId, idxStr] = btn.dataset.vibeRecLog.split('|');
+      const targetEntry = (DATA.vibeHistory||[]).find(e=>e.id===entryId);
+      const rec = targetEntry && targetEntry.recs[Number(idxStr)];
+      if(!rec) return;
+      if(!rec.showId){
+        // Same lazy-add Someday already used — a live-tier title with
+        // nothing in your data yet only becomes a real custom show (tagged
+        // ai-suggested) at the moment you actually act on it.
+        rec.showId = addCustomShow({title:rec.title, year:rec.pendingYear||null, team:rec.pendingTeam||[], tags:['ai-suggested']});
+        delete rec.pendingYear;
+        delete rec.pendingTeam;
+        saveData();
+      }
+      goToShowFromVibeToLog(rec.showId);
+    };
   });
   host.querySelectorAll('[data-vibe-rec-someday]').forEach(btn=>{
     btn.onclick = ()=>{

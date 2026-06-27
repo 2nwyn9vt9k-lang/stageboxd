@@ -456,7 +456,7 @@
   <button id="exportBtn">EXPORT</button>
   <button id="importBtn">IMPORT</button>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-25n</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-27a</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -844,6 +844,27 @@ function addCustomShow({title, team, year, tags}){
   return id;
 }
 
+// Shared by Library's detail-popup delete button AND Review's new inline delete
+// button — previously each had its own separate copy of this confirm/delete
+// logic. Pulled into one function so the warning text and behavior can't drift
+// between the two entry points the way other things in this app have before.
+// Returns true if the show was actually deleted, false if cancelled or not a
+// custom show (seed shows are permanent and never reach this function from the UI).
+function deleteCustomShow(showId){
+  const show = getShow(showId);
+  if(!show || !show.custom) return false;
+  const state = getState(showId);
+  const hasLogged = state.experiences.length>0;
+  const warning = hasLogged
+    ? `Delete "${show.title}" entirely? This also removes the ${state.experiences.length} experience${state.experiences.length===1?'':'s'} logged against it. Can't be undone (export a backup first if unsure).`
+    : `Delete "${show.title}"? Can't be undone.`;
+  if(!confirm(warning)) return false;
+  delete DATA.customShows[showId];
+  delete DATA.overrides[showId];
+  saveData();
+  return true;
+}
+
 /* ============================================================
    NAV
    ============================================================ */
@@ -967,10 +988,15 @@ function renderReview(){
     <div id="reviewCard"></div>
     <div class="btnrow" style="margin-top:14px;">
       <button class="btn ghost-dark small" id="addCustomFromReview">+ add a show that's not on this list</button>
+      ${show.custom ? `<button class="btn danger small" id="deleteCustomFromReview">delete this custom show</button>` : ''}
     </div>
   `;
   renderReviewCard(show);
   document.getElementById('addCustomFromReview').onclick = ()=> openAddCustomModal(goToShowInReview);
+  const deleteCustomBtn = document.getElementById('deleteCustomFromReview');
+  if(deleteCustomBtn) deleteCustomBtn.onclick = ()=>{
+    if(deleteCustomShow(show.id)) advanceReview();
+  };
   wireDueBanner(el);
 }
 
@@ -1678,14 +1704,7 @@ function openLibDetail(showId){
   };
   const delBtn = back.querySelector('#ld-delete-show');
   if(delBtn) delBtn.onclick = ()=>{
-    const hasLogged = state.experiences.length>0;
-    const warning = hasLogged
-      ? `Delete "${show.title}" entirely? This also removes the ${state.experiences.length} experience${state.experiences.length===1?'':'s'} logged against it. Can't be undone (export a backup first if unsure).`
-      : `Delete "${show.title}"? Can't be undone.`;
-    if(confirm(warning)){
-      delete DATA.customShows[showId];
-      delete DATA.overrides[showId];
-      saveData();
+    if(deleteCustomShow(showId)){
       back.remove();
       renderLibrary();
     }
@@ -1695,6 +1714,27 @@ function openLibDetail(showId){
 /* ============================================================
    VIBE CHECK TAB
    ============================================================ */
+
+// A single-show loyalty signal the collaborator card structurally can't see:
+// a creative team that only ever wrote one or two shows total (Meredith
+// Willson wrote three, period) can never clear that card's "2+ different
+// shows" floor, no matter how hard you love their one show. This counts
+// repeat return-trips to the SAME show instead — 3+ rated experiences logged
+// against it, none below a 4 — and is shared by the stat card, the local
+// Quick Check, and the live Computer Friend's data prep, written once here
+// so the three can't quietly drift the way the collaborator floor once did.
+function getComebackShows(loggedShows){
+  return loggedShows.map(s=>{
+    const st = getState(s.id);
+    const rated = st.experiences.filter(e=>e.rating!==null && e.rating!==undefined);
+    if(rated.length<3) return null;
+    const ratings = rated.map(e=>e.rating);
+    if(Math.min(...ratings)<4) return null;
+    const avg = ratings.reduce((a,b)=>a+b,0)/ratings.length;
+    return {title:s.title, count:rated.length, avg};
+  }).filter(Boolean).sort((a,b)=> b.avg-a.avg || b.count-a.count);
+}
+
 function renderVibe(){
   const el = document.getElementById('tab-vibe');
   const loggedShows = Object.values(allShows()).filter(s=>getState(s.id).experiences.length>0);
@@ -1725,6 +1765,8 @@ function renderVibe(){
     .sort((a,b)=> b.boughtInRate - a.boughtInRate || (b.avg||0)-(a.avg||0))
     .slice(0,8);
 
+  const comebackShows = getComebackShows(loggedShows);
+
   // "stuck at fine" flags
   const flags = [];
   loggedShows.forEach(s=>{
@@ -1751,6 +1793,12 @@ function renderVibe(){
         <div class="collab-row"><span><button class="collab-name-btn" data-collab-idx="${i}">${escapeHtml(c.name)}</button> <span style="color:var(--chalk-dim)">(${c.showCount} show${c.showCount===1?'':'s'})</span></span>
         <span>${c.avg?c.avg.toFixed(1)+'/5 avg · ':''}${Math.round(c.boughtInRate*100)}% loved or bought in</span></div>
       `).join('') : '<p style="font-family:var(--font-mono);font-size:12px;color:var(--chalk-dim);">Log a few experiences and this fills in.</p>'}
+    </div>
+
+    <div class="stat-card">
+      <h3>Shows you keep coming back to</h3>
+      <p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">A single-show signal the collaborator card above structurally can't catch — a creative team that only ever wrote one or two shows total can never clear its 2-different-shows floor.</p>
+      ${comebackShows.length ? comebackShows.map(c=>`<div class="flag-row"><b>${escapeHtml(c.title)}</b> — logged ${c.count} times, never below a 4 (avg ${c.avg.toFixed(1)}/5).</div>`).join('') : '<p style="font-family:var(--font-mono);font-size:12px;color:var(--chalk-dim);">No show has 3+ logged experiences with nothing below a 4 yet.</p>'}
     </div>
 
     <div class="stat-card">
@@ -1883,6 +1931,9 @@ function runLocalVibeCheck(){
     }
   });
 
+  // ---- comeback shows, same rule as the stat card ----
+  const comebackShows = getComebackShows(loggedShows);
+
   // ---- recommendations: unlogged shows sharing a top collaborator,
   // excluding anything already flagged don't-care ----
   const dontcareIds = new Set(Object.values(allShows()).filter(s=>getState(s.id).status==='dontcare').map(s=>s.id));
@@ -1911,6 +1962,10 @@ function runLocalVibeCheck(){
     lines.push(`You buy into ${top.name} more than almost anyone else logged here — ${Math.round(top.boughtInRate*100)}% loved-or-bought-in across ${top.showCount} show${top.showCount===1?'':'s'} (${titles}).`);
   } else {
     lines.push(`No repeat collaborator shows up enough yet to call a real pattern — most names here only have one logged credit. Give it more shows before trusting this card.`);
+  }
+  if(comebackShows.length){
+    const topComeback = comebackShows[0];
+    lines.push(`${topComeback.title} is a show you keep returning to and rating high every time (${topComeback.count} logged experiences, avg ${topComeback.avg.toFixed(1)}/5, none below a 4) — a real favorite the collaborator stat above can't catch if its creative team never wrote a second show you've logged.`);
   }
   if(stuckTitles.length){
     lines.push(`${stuckTitles.join(' and ')} ${stuckTitles.length===1?'is':'are'} sitting flat in the "fine" band across multiple formats. By the rule this app runs on, that's quiet dislike, not neutrality — it shouldn't keep getting credit for a so-so number.`);
@@ -1977,6 +2032,8 @@ async function runLiveComputerFriend(){
     }
   });
 
+  const comebackShows = getComebackShows(loggedShows);
+
   const dontcareEntries = Object.values(allShows()).filter(s=>getState(s.id).status==='dontcare').map(s=>{
     const reason = getState(s.id).dontcareReason;
     return reason ? `${s.title} (reason: ${reason})` : s.title;
@@ -1988,6 +2045,7 @@ async function runLiveComputerFriend(){
 Rules:
 - No flattery, no hedging filler. Lead with the finding.
 - Treat a show sitting in the "fine" (3/5) band across two or more different formats as a real signal of quiet dislike, not neutrality — name it directly if one is given to you.
+- Treat a show logged 3+ times with nothing rated below a 4 as a real, strong favorite in its own right — even if its creative team doesn't otherwise appear among the top collaborators. A one- or two-show creative team can legitimately never clear the collaborator-level bar, so don't undersell this signal just because it's tied to a single title.
 - Never recommend anything on the "don't care" list provided below.
 - Where a don't-care entry includes a stated reason, use it to reason about whether a new recommendation risks the same objection (e.g. premise-level, creator-level, genre-level) — but the reason is never grounds to recommend the don't-care show itself.
 - Never recommend anything on the "already logged" list provided below.
@@ -1997,6 +2055,8 @@ Rules:
 
   const userText = `Collaborators with 2+ different shows logged AND a ≥50% bought-in rate, ranked by bought-in rate:
 ${collabStats.length ? collabStats.map(c=>`- ${c.name}: ${Math.round(c.boughtInRate*100)}% bought-in, avg rating ${c.avg ?? 'n/a'}, across ${c.showCount} show(s): ${c.showTitles.join(', ')}`).join('\n') : '(none yet — no repeat collaborators logged)'}
+
+Shows logged 3+ times with nothing rated below a 4 — a real personal favorite even when its creative team never wrote a second show worth flagging above: ${comebackShows.length ? comebackShows.map(c=>`${c.title} (avg ${c.avg.toFixed(2)}, ${c.count} experiences)`).join(', ') : '(none yet)'}
 
 Shows stuck in the "fine" band across 2+ formats: ${stuckTitles.length ? stuckTitles.join(', ') : '(none)'}
 

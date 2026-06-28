@@ -46,7 +46,6 @@
        illegible" glow — it's what fills in the gaps between letters on a
        bold condensed face. Left untouched on purpose; only opacity moved. */
     --title-glow:0 0 6px rgba(255,201,61,0.42);
-    --bulb-glow:rgba(255,201,61,.45);
     --font-display:Impact, Haettenschweiler, 'Anton', 'Arial Narrow Bold', sans-serif;
     --font-body:'Source Serif 4', Georgia, serif;
     --font-mono:'JetBrains Mono', 'Courier New', monospace;
@@ -350,7 +349,6 @@
     padding:50px 20px;
     color:var(--chalk-dim);
   }
-  .empty .bulb{ font-size:40px; display:block; margin-bottom:10px; filter: drop-shadow(0 0 14px var(--bulb-glow)); }
   .empty p{ font-family:var(--font-mono); font-size:12px; letter-spacing:.5px; max-width:360px; margin:0 auto; }
 
   /* ---------- storage health banner ---------- */
@@ -408,7 +406,8 @@
     font-family:var(--font-mono); font-size:12px; letter-spacing:1px; text-transform:uppercase;
     color:var(--amber); margin:0 0 10px;
   }
-  .collab-row{ display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:12px; padding:4px 0; border-bottom:1px solid var(--panel-line); }
+  .collab-row{ display:flex; flex-direction:column; gap:2px; font-family:var(--font-mono); font-size:12px; padding:4px 0; border-bottom:1px solid var(--panel-line); }
+  .collab-row > span:last-child{ text-align:right; }
   .collab-row:last-child{ border-bottom:none; }
   .collab-name-btn{ background:none; border:none; padding:0; margin:0; font:inherit; color:var(--chalk); text-decoration:underline; text-decoration-color:var(--panel-line); cursor:pointer; }
   .collab-name-btn:hover{ color:var(--amber); text-decoration-color:var(--amber); }
@@ -499,7 +498,7 @@
   <button id="exportBtn">EXPORT</button>
   <button id="importBtn">IMPORT</button>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-27h</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-28b</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1018,7 +1017,7 @@ function dueScheduledBannerHtml(dueShows){
       ${dueShows.map(s=>{
         const st = getState(s.id);
         return `<div class="due-banner-row">
-          <span>📅 <b>${escapeHtml(s.title)}</b> was on your calendar for ${escapeHtml(st.scheduledDate)} — how'd it go?</span>
+          <span><b>${escapeHtml(s.title)}</b> was on your calendar for ${escapeHtml(st.scheduledDate)} — how'd it go?</span>
           <button class="btn small amber" data-due-log="${s.id}">log it now</button>
         </div>`;
       }).join('')}
@@ -1055,7 +1054,6 @@ function renderReview(){
     el.innerHTML = bannerHtml + `
       <h2 class="section-title">Review</h2>
       <div class="empty">
-        <span class="bulb">💡</span>
         <p>The ghost light's the only thing on. You've made a call on everything currently in the deck — all seed titles, plus anything you've added.</p>
       </div>
       <div class="btnrow" style="justify-content:center;">
@@ -1443,7 +1441,7 @@ function expEntryHtml(showId, e){
         <span>${e.rating?RATING_LABELS[e.rating]+' ('+e.rating+'/5)':'no rating'} ${verdict? '· '+verdict.label:''}</span>
       </div>
       ${bits.length?`<div class="meta">${bits.join(' · ')}</div>`:''}
-      ${e.performedIn?`<div class="meta">🎭 performed in this one</div>`:''}
+      ${e.performedIn?`<div class="meta">performed in this one</div>`:''}
       ${e.blurb?`<div class="blurb">"${escapeHtml(e.blurb)}"</div>`:''}
       ${e.moment?`<div class="meta">★ ${escapeHtml(e.moment)}</div>`:''}
       <div class="exp-entry-actions">
@@ -1666,6 +1664,61 @@ async function callClaudeAPI({system, userText, useWebSearch}){
   return text;
 }
 
+// ROBUST JSON EXTRACTION (2026-06-28). Both live API call sites
+// (findMoreShowsViaAPI, runLiveComputerFriend) ask the model for ONE clean
+// JSON value and nothing else, but a model can still ship a broken draft
+// plus a self-correction in the same reply despite that instruction — at
+// which point the old "strip code fences, JSON.parse the whole cleaned
+// string" approach failed outright, dumping the entire raw reply (drafts,
+// commentary, and all) with no recommendations, since nothing in that
+// string is valid JSON taken as a whole.
+//
+// This scans the raw text for every balanced span between openCh/closeCh —
+// tracking whether we're inside a quoted JSON string so a bracket character
+// INSIDE a string value (e.g. a title containing one) doesn't throw the
+// depth count off — and tries to JSON.parse each span, LAST candidate
+// first. Last-first matters specifically for the "let me redo this
+// properly" case: the corrected, real answer comes after the broken draft
+// in the text, not before it.
+function extractBalancedJsonSpans(text, openCh, closeCh){
+  const spans = [];
+  let depth = 0, start = -1, inStr = false, esc = false;
+  for(let i=0; i<text.length; i++){
+    const ch = text[i];
+    if(inStr){
+      if(esc){ esc = false; }
+      else if(ch === '\\'){ esc = true; }
+      else if(ch === '"'){ inStr = false; }
+      continue;
+    }
+    if(ch === '"'){ inStr = true; continue; }
+    if(ch === openCh){
+      if(depth === 0) start = i;
+      depth++;
+    } else if(ch === closeCh && depth > 0){
+      depth--;
+      if(depth === 0 && start >= 0){ spans.push(text.slice(start, i+1)); start = -1; }
+    }
+  }
+  return spans;
+}
+
+// openCh/closeCh: '{'/'}' for an object reply, '['/']' for an array reply.
+// validate: optional predicate the parsed value must pass (e.g. "has a
+// string .reply field") — lets a structurally-valid-but-wrong JSON blob
+// (like a stray object quoted as an example inside the model's own
+// commentary) get skipped in favor of the real one.
+function extractJsonValue(text, openCh, closeCh, validate){
+  const spans = extractBalancedJsonSpans(text, openCh, closeCh);
+  for(let i = spans.length - 1; i >= 0; i--){
+    try{
+      const parsed = JSON.parse(spans[i]);
+      if(!validate || validate(parsed)) return parsed;
+    }catch(parseErr){ /* not valid JSON — try the next candidate span */ }
+  }
+  return null;
+}
+
 async function findMoreShowsViaAPI(){
   const btn = document.getElementById('findMoreFromEmpty');
   const status = document.getElementById('findMoreStatus');
@@ -1680,22 +1733,15 @@ Rules:
 - Never repeat a title already in the provided list (case-insensitive, ignore minor punctuation differences).
 - Favor structurally or historically significant titles over obscure one-off regional shows, but mix eras.
 - Use the web search tool to double-check year and creative-team credits before finalizing, especially for jukebox musicals, recent shows, or anything you're not fully sure of.
-- Your FINAL reply must be ONLY a JSON array — no preamble, no markdown code fences, no explanation before or after. Exactly this shape:
+- Your FINAL reply must be ONLY a JSON array — no preamble, no markdown code fences, no explanation before or after, no draft attempt, no self-correction — think it through silently and output the finished array exactly once. Exactly this shape:
 [["Title", year_as_number_or_null, ["Composer","Lyricist","Book writer"], ["tag1","tag2"]], ...]
 Suggest exactly 8 shows.`;
   const userText = `Here is the user's existing list of ${existingTitles.length} titles:\n${existingTitles.join('\n')}\n\nGive me 8 new musicals not on this list, as the JSON array described in your instructions.`;
   try{
     const raw = await callClaudeAPI({system, userText, useWebSearch:true});
-    const cleaned = raw.replace(/```json|```/g,'').trim();
-    let parsed;
-    try{
-      parsed = JSON.parse(cleaned);
-    }catch(parseErr){
+    const parsed = extractJsonValue(raw, '[', ']', p => Array.isArray(p));
+    if(!parsed){
       if(status) status.innerHTML = `<div class="ai-response" style="text-align:left;">Claude answered, but it didn't come back as clean JSON — here's the raw reply so nothing's lost:<br><br>${escapeHtml(raw)}</div>`;
-      return;
-    }
-    if(!Array.isArray(parsed)){
-      if(status) status.innerHTML = `<div class="ai-response" style="text-align:left;">Claude answered, but not in the expected list format. Raw reply:<br><br>${escapeHtml(raw)}</div>`;
       return;
     }
     const seedSlugs = new Set(Object.keys(SEED_SHOWS));
@@ -1800,13 +1846,13 @@ function renderLibList(){
   });
   filtered.sort((a,b)=>a.title.localeCompare(b.title));
   if(filtered.length===0){
-    listEl.innerHTML = `<div class="empty"><span class="bulb">🎫</span><p>Nothing here yet. Log something in Review, or add a show directly.</p></div>`;
+    listEl.innerHTML = `<div class="empty"><p>Nothing here yet. Log something in Review, or add a show directly.</p></div>`;
     return;
   }
   listEl.innerHTML = filtered.map(s=>{
     const st = getState(s.id);
     const caps = [...new Set(st.experiences.map(e=>e.capacity))];
-    const capIcons = caps.map(c=> (CAPACITIES.find(x=>x.key===c)||{}).icon || '').join(' ') + (st.experiences.some(e=>e.performedIn) ? ' 🎭' : '');
+    const capIcons = caps.map(c=> (CAPACITIES.find(x=>x.key===c)||{}).icon || '').join(' ');
     return `
       <div class="lib-card" data-show="${s.id}">
         <div class="title">${escapeHtml(s.title)}</div>
@@ -1908,7 +1954,7 @@ function ldCalendarHtml(showId){
   const st = getState(showId);
   if(st.status === 'scheduled'){
     return `<div class="ld-calendar-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12px;">
-      <span>📅 <b>On the calendar for ${escapeHtml(st.scheduledDate||'')}</b></span>
+      <span><b>On the calendar for ${escapeHtml(st.scheduledDate||'')}</b></span>
       <button class="btn ghost-dark small" id="ld-cal-change">change date</button>
       <button class="btn small" id="ld-cal-clear">remove</button>
     </div>`;
@@ -2269,7 +2315,7 @@ function renderVibe(){
     <p class="section-sub">what the ledger says about your actual taste, not the popular consensus</p>
 
     ${statCardHtml('collab', 'Creative collaborators you keep buying into',
-      '<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">Composers, lyricists, and book writers you keep actually buying into — not just worked with often. Needs 2+ different shows logged against that name (or pair — see below) and a real bought-in rate of 50% or higher. A name-pair that\'s co-credited on 2+ of your logged shows (Comden & Green, etc.) shows as one combined entity rather than two separate half-credits; any other show either of them did without the other still counts toward them solo. The percentage and average shown are also adjusted for sample size — a 2-show 100% gets pulled toward your overall average more than an 8-show 87% does, so a lucky thin sample can\'t outrank a real track record. Click a name to see the raw, unadjusted numbers behind it.</p>',
+      '<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">Composers, lyricists, and book writers you actually keep buying into — not just people you\'ve crossed paths with a lot. Click a name for the real story behind the number.</p>',
       '',
       collabStats.length ? collabStats.map((c,i)=>`
         <div class="collab-row"><span><button class="collab-name-btn" data-collab-idx="${i}">${escapeHtml(c.name)}</button> <span style="color:var(--chalk-dim)">(${c.showCount} show${c.showCount===1?'':'s'})</span></span>
@@ -2278,7 +2324,7 @@ function renderVibe(){
     )}
 
     ${statCardHtml('comeback', 'Shows you keep coming back to',
-      '<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">A single-show signal the collaborator card above structurally can\'t catch — a creative team that only ever wrote one or two shows total can never clear its 2-different-shows floor.</p>',
+      '<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">A single-show loyalty signal the collaborator card above structurally can\'t catch — a show you keep returning to and rating high, even if its creative team never wrote anything else you\'ve logged.</p>',
       '',
       comebackShows.length ? comebackShows.map(c=>`<div class="flag-row"><b>${escapeHtml(c.title)}</b> — logged ${c.count} times, never below a 4 (avg ${c.avg.toFixed(1)}/5).</div>`).join('') : '<p style="font-family:var(--font-mono);font-size:12px;color:var(--chalk-dim);">No show has 3+ logged experiences with nothing below a 4 yet.</p>'
     )}
@@ -2314,7 +2360,7 @@ function renderVibe(){
       <div class="vibe-tab-row">
         <button class="vibe-tab-pill${vibeActiveTab==='local'?' active':''}" data-vibe-tab="local">Quick check</button>
         <button class="vibe-tab-pill${vibeActiveTab==='live'?' active':''}" data-vibe-tab="live">Computer Friend (live)</button>
-        <button class="btn ghost-dark small" id="vibeHistBtn" style="margin-left:auto;">📜 past runs</button>
+        <button class="btn ghost-dark small" id="vibeHistBtn" style="margin-left:auto;">past runs</button>
       </div>
       <div id="vibeResultHost"></div>
     </div>
@@ -2865,7 +2911,7 @@ Rules:
 - You MAY and SHOULD recommend musicals beyond anything mentioned in the data, drawing on your own general knowledge — that's the whole point of this live version versus a static lookup. Specifically look for genuine cross-medium connections to the "non-theater anchors" listed below (a TV writer, a band, etc. that explains taste better than a genre tag would) — real reasoning about why, not a coincidence of shared words.
 - Musicals only — never recommend a straight play.
 - Keep your "reply" text under 200 words, plain prose, no headers or bullet lists.
-- Your FINAL output must be ONLY a JSON object — no preamble, no markdown code fences, no explanation before or after. Exactly this shape:
+- Your FINAL output must be ONLY a JSON object — no preamble, no markdown code fences, no explanation before or after, no draft attempt, no self-correction, no "let me redo this" — think it through silently and output the finished JSON object exactly once. Exactly this shape:
 {"reply": "your full plain-prose answer, as described above", "recommendations": [{"title": "Show Title", "year": year_as_number_or_null, "team": ["Composer","Lyricist"], "because": "a few-word reason, e.g. a collaborator name or anchor connection"}]}
 List 1-3 entries in "recommendations" — the same shows you're recommending in "reply," not additional ones not mentioned there. If you have nothing to recommend, use an empty array.`;
 
@@ -2892,12 +2938,10 @@ What does this data say about my taste, and what should I check out next?`;
   if(btn){ btn.disabled = true; btn.textContent = 'thinking...'; }
   try{
     const raw = await callClaudeAPI({system, userText, useWebSearch:false});
-    const cleaned = raw.replace(/```json|```/g,'').trim();
-    let parsed = null;
-    try{ parsed = JSON.parse(cleaned); }catch(parseErr){ /* fall through to the raw-text fallback below */ }
+    const parsed = extractJsonValue(raw, '{', '}', p => p && typeof p.reply === 'string');
 
     let lines, recs;
-    if(parsed && typeof parsed.reply === 'string'){
+    if(parsed){
       lines = [parsed.reply.trim()];
       const rawRecs = Array.isArray(parsed.recommendations) ? parsed.recommendations : [];
       recs = rawRecs.filter(r=>r && r.title).slice(0,3).map(r=>{
@@ -2982,7 +3026,7 @@ function escapeHtml(str){
 }
 
 (async function init(){
-  document.getElementById('tab-review').innerHTML = `<div class="empty"><span class="bulb">💡</span><p>loading the ledger...</p></div>`;
+  document.getElementById('tab-review').innerHTML = `<div class="empty"><p>loading the ledger...</p></div>`;
   checkStorageHealth();
   await loadData();
   renderReview();

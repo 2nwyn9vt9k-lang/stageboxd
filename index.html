@@ -316,6 +316,7 @@
     display:flex;
     flex-direction:column;
     gap:4px;
+    position:relative;
   }
   .lib-card:hover{ border-color:var(--amber-dim); }
   .lib-card .title{ font-family:var(--font-display); font-size:16px; letter-spacing:.3px; text-transform:uppercase; line-height:1.15; }
@@ -327,6 +328,30 @@
      pins the icon row to the bottom of every card uniformly, regardless of
      how many lines the title/credits text above it wrapped to. */
   .cap-icons{ font-size:15px; letter-spacing:2px; white-space:nowrap; margin-top:auto; }
+  /* "Performed in it" corner badge (brought back 2026-06-28, plain-letter
+     instead of the old 🎭 emoji it replaces — the no-decorative-emoji rule is
+     locked, this is a plain mark in the same spirit as ✕/▾/▸/★/✓/⚠/←).
+     Pinned to the card's own bottom-right corner via position:absolute,
+     deliberately apart from .cap-icons (which stays left-aligned) rather than
+     joining that row, per Cameron's request that it read as a separate fact
+     about the show, not a fifth capacity icon. */
+  .performed-badge{
+    position:absolute;
+    bottom:10px;
+    right:10px;
+    width:16px;
+    height:16px;
+    border-radius:50%;
+    border:1px solid var(--panel-line);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-family:var(--font-mono);
+    font-size:9px;
+    font-weight:700;
+    color:var(--chalk-dim);
+    background:var(--stage);
+  }
 
   /* ---------- library subsections: someday / scheduled / don't-care ---------- */
   .lib-section-divider{ height:1px; background:var(--panel-line); margin:24px 0 14px; }
@@ -499,7 +524,7 @@
   <button id="exportBtn">EXPORT</button>
   <button id="importBtn">IMPORT</button>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-28d</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-28e</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -769,7 +794,7 @@ const VERDICTS = [
    ============================================================ */
 const STORAGE_KEY = 'ledger-data';
 const API_KEY_STORAGE = 'underscore-api-key';
-let DATA = { overrides:{}, customShows:{}, anchors:[], vibeHistory:[] };
+let DATA = { overrides:{}, customShows:{}, anchors:[], vibeHistory:[], duoDenylist:[] };
 let dataLoaded = false;
 
 /* ---- personal Anthropic API key: deliberately its own storage key, kept
@@ -795,6 +820,7 @@ function loadData(){
       DATA.customShows = DATA.customShows || {};
       DATA.anchors = DATA.anchors || [];
       DATA.vibeHistory = DATA.vibeHistory || [];
+      DATA.duoDenylist = DATA.duoDenylist || [];
     }
   }catch(e){
     // no existing data yet, or storage is blocked — checkStorageHealth() catches that case
@@ -1854,11 +1880,13 @@ function renderLibList(){
     const st = getState(s.id);
     const caps = [...new Set(st.experiences.map(e=>e.capacity))];
     const capIcons = caps.map(c=> (CAPACITIES.find(x=>x.key===c)||{}).icon || '').join(' ');
+    const performedFlag = st.experiences.some(e=>e.performedIn);
     return `
       <div class="lib-card" data-show="${s.id}">
         <div class="title">${escapeHtml(s.title)}</div>
         <div class="credits">${s.year?s.year+' · ':''}${s.team.map(escapeHtml).join(', ')}</div>
         <div class="cap-icons">${capIcons}</div>
+        ${performedFlag ? '<span class="performed-badge" title="performed in this one">P</span>' : ''}
       </div>
     `;
   }).join('');
@@ -2144,24 +2172,43 @@ function openEditCustomShowModal(showId, onSaved){
 const DUO_THRESHOLD = 2; // shared logged shows needed to count as a recurring pair
 const SHRINK_K = 4; // "virtual" average-ish experiences blended in for shrinkage — higher = stronger pull toward your overall average for thin samples, smaller effect once a name has real history
 
+function pairKey(a,b){ return [a,b].sort().join('||'); }
+
+// Per-pair show counts from the user's own logged data, regardless of
+// DUO_THRESHOLD or the denylist — shared by getRecognizedDuos() and the
+// "review detected pairs" management list, which needs raw counts for
+// denied pairs too (so a denial can be reviewed/reversed later).
+function getDuoPairCounts(loggedShows){
+  const pairShowSets = {};
+  loggedShows.forEach(s=>{
+    const team = s.team.filter(p=>p!=='various' && p!=='various artists');
+    for(let i=0;i<team.length;i++){
+      for(let j=i+1;j<team.length;j++){
+        const key = pairKey(team[i],team[j]);
+        if(!pairShowSets[key]) pairShowSets[key] = new Set();
+        pairShowSets[key].add(s.title);
+      }
+    }
+  });
+  return pairShowSets;
+}
+
 // Finds every pair of names that's been credited together on 2+ of the
 // user's own logged shows. Returns a map: name -> their one recognized
 // partner (only set when BOTH sides agree on each other as their best/only
 // qualifying partner — if A's strongest pairing is B but B's strongest
 // pairing is someone else, neither merges; both stay solo rather than
 // showing a one-sided pairing).
+// Manual override (2026-06-28): raw co-occurrence count can't tell a real
+// recurring creative team from people who just happened to work together
+// twice — surfaced by a real case, Stephen Sondheim & Arthur Laurents, who
+// share 2 logged shows but aren't a duo by Cameron's own read. DATA.duoDenylist
+// holds pair-keys Cameron's manually rejected; a denied pair is skipped during
+// candidate selection below, so a name falls through to its next-best
+// qualifying partner (if any) instead of just going solo.
 function getRecognizedDuos(loggedShows){
-  const pairShowSets = {}; // "NameA||NameB" (alphabetical) -> Set of show titles
-  loggedShows.forEach(s=>{
-    const team = s.team.filter(p=>p!=='various' && p!=='various artists');
-    for(let i=0;i<team.length;i++){
-      for(let j=i+1;j<team.length;j++){
-        const key = [team[i],team[j]].sort().join('||');
-        if(!pairShowSets[key]) pairShowSets[key] = new Set();
-        pairShowSets[key].add(s.title);
-      }
-    }
-  });
+  const pairShowSets = getDuoPairCounts(loggedShows);
+  const denylist = new Set(DATA.duoDenylist || []);
   const candidatesByName = {};
   Object.entries(pairShowSets).forEach(([key, titles])=>{
     if(titles.size < DUO_THRESHOLD) return;
@@ -2177,12 +2224,38 @@ function getRecognizedDuos(loggedShows){
     // for the rare case of an exact tie — there's no principled reason to
     // prefer one pairing over another automatically beyond that.
     candidates.sort((a,b)=> b.count-a.count || a.partner.localeCompare(b.partner));
-    duoMap[name] = candidates[0].partner;
+    const best = candidates.find(c=> !denylist.has(pairKey(name,c.partner)));
+    if(best) duoMap[name] = best.partner;
   });
   Object.keys(duoMap).forEach(name=>{
     if(duoMap[duoMap[name]] !== name) delete duoMap[name];
   });
   return duoMap;
+}
+
+// Every pair currently worth showing in the "review detected pairs" manager:
+// either actively merged right now (per getRecognizedDuos() above) or sitting
+// in the denylist with enough shared shows to still be a real candidate —
+// union of both, so a denied pair stays reviewable/reversible even after a
+// name's fallen through to a different partner, and a newly-active pair
+// (e.g. the fallback itself) is reachable too. This has to work independent
+// of whether a pair's merged row currently renders on the collaborator card —
+// a pair that fails the card's own qualifying floor (2+ shows, ≥50% bought-in)
+// never gets a row to click into at all, which is exactly what made the
+// Sondheim/Laurents case invisible in the first place.
+function getDuoManagementList(loggedShows){
+  const pairShowSets = getDuoPairCounts(loggedShows);
+  const denylist = new Set(DATA.duoDenylist || []);
+  const activeDuoMap = getRecognizedDuos(loggedShows);
+  const keys = new Set();
+  Object.entries(activeDuoMap).forEach(([name,partner])=> keys.add(pairKey(name,partner)));
+  denylist.forEach(key=>{ if(pairShowSets[key] && pairShowSets[key].size>=DUO_THRESHOLD) keys.add(key); });
+  const rows = Array.from(keys).map(key=>{
+    const [a,b] = key.split('||');
+    return { a, b, key, count: pairShowSets[key].size, denied: denylist.has(key) };
+  });
+  rows.sort((x,y)=> y.count-x.count || x.a.localeCompare(y.a));
+  return rows;
 }
 
 // Given one show's team and the recognized-duos map, returns the credit
@@ -2317,7 +2390,7 @@ function renderVibe(){
 
     ${statCardHtml('collab', 'Creative collaborators you keep buying into',
       '<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">Composers, lyricists, and book writers you actually keep buying into — not just people you\'ve crossed paths with a lot. Click a name for the real story behind the number.</p>',
-      '',
+      '<button class="btn ghost-dark small" id="manageDuoPairsBtn" style="margin-bottom:6px;">review detected pairs</button>',
       collabStats.length ? collabStats.map((c,i)=>`
         <div class="collab-row"><span><button class="collab-name-btn" data-collab-idx="${i}">${escapeHtml(c.name)}</button> <span style="color:var(--chalk-dim)">(${c.showCount} show${c.showCount===1?'':'s'})</span></span>
         <span>${c.avg?c.avg.toFixed(1)+'/5 avg · ':''}${Math.round(c.boughtInRate*100)}% loved or bought in</span></div>
@@ -2390,6 +2463,7 @@ function renderVibe(){
   document.getElementById('runVibeCheck').onclick = ()=> runLocalVibeCheck();
   document.getElementById('runLiveComputerFriend').onclick = ()=> runLiveComputerFriend();
   document.getElementById('vibeHistBtn').onclick = ()=> openVibeHistoryModal();
+  document.getElementById('manageDuoPairsBtn').onclick = ()=> openDuoManagementModal(loggedShows);
   el.querySelectorAll('.vibe-tab-pill').forEach(p=>{
     p.onclick = ()=> setVibeActiveTab(p.dataset.vibeTab);
   });
@@ -2445,6 +2519,45 @@ function openCollabShowsModal(c){
   `;
   document.body.appendChild(back);
   back.querySelector('#collabModalClose').onclick = ()=> back.remove();
+}
+
+// "Review detected pairs" (2026-06-28): lists every pair the algorithm has
+// either actively merged or previously had denied, with a toggle per row —
+// reachable independent of whether a pair's merged row renders on the
+// collaborator card itself, since a pair that fails the card's own
+// qualifying floor never gets a row to click into (the Sondheim/Laurents
+// case that motivated this feature).
+function openDuoManagementModal(loggedShows){
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop';
+  const rows = getDuoManagementList(loggedShows);
+  const rowsHtml = rows.length ? rows.map(r=>`
+    <div class="lib-subitem" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+      <span>${escapeHtml(r.a)} & ${escapeHtml(r.b)} <span class="sub-extra">— ${r.count} shared show${r.count===1?'':'s'}${r.denied?' · currently kept solo':''}</span></span>
+      <button class="btn ghost-dark small" data-duo-toggle="${escapeHtml(r.key)}" style="white-space:nowrap;">${r.denied ? 're-enable as duo' : 'not actually a duo'}</button>
+    </div>
+  `).join('') : '<p style="font-family:var(--font-mono);font-size:12px;color:var(--chalk-dim);">No recurring pairs detected from your logged data yet — needs 2+ shared shows between two names.</p>';
+  back.innerHTML = `
+    <div class="modal">
+      <h2 class="section-title" style="color:var(--ink)">Review detected pairs</h2>
+      <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">Pairs co-credited on 2+ of your logged shows. Raw show-count can't tell a real recurring creative team from people who just happened to cross paths twice — mark one "not actually a duo" to keep both names credited solo from now on; the change is permanent until you reverse it here.</p>
+      <div>${rowsHtml}</div>
+      <div class="btnrow"><button class="btn small" id="duoManageModalClose">Close</button></div>
+    </div>
+  `;
+  document.body.appendChild(back);
+  back.querySelectorAll('[data-duo-toggle]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const key = btn.dataset.duoToggle;
+      const i = DATA.duoDenylist.indexOf(key);
+      if(i>=0) DATA.duoDenylist.splice(i,1); else DATA.duoDenylist.push(key);
+      saveData();
+      back.remove();
+      openDuoManagementModal(loggedShows);
+      renderVibe();
+    };
+  });
+  back.querySelector('#duoManageModalClose').onclick = ()=>{ back.remove(); renderVibe(); };
 }
 
 function renderAnchors(){
@@ -3006,7 +3119,7 @@ document.getElementById('importFile').onchange = (e)=>{
     try{
       const parsed = JSON.parse(reader.result);
       if(!confirm('This will replace your current ledger data with the imported file. Continue?')) return;
-      DATA = Object.assign({overrides:{}, customShows:{}, anchors:[], vibeHistory:[]}, parsed);
+      DATA = Object.assign({overrides:{}, customShows:{}, anchors:[], vibeHistory:[], duoDenylist:[]}, parsed);
       saveData();
       currentReviewId = null;
       renderReview();

@@ -303,7 +303,7 @@
   .exp-entry-head .cap{ text-transform:uppercase; font-weight:700; }
   .exp-entry .blurb{ font-family:var(--font-body); font-size:14px; margin:6px 0 0; font-style:italic; }
   .exp-entry .meta{ font-family:var(--font-mono); font-size:10px; color:#7a756d; margin-top:6px; }
-  .exp-entry-actions{ margin-top:8px; }
+  .exp-entry-actions{ margin-top:8px; display:flex; gap:8px; }
 
   /* ---------- library list ---------- */
   .lib-controls{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
@@ -964,6 +964,7 @@ document.querySelectorAll('nav button').forEach(btn=>{
 let reviewQueue = [];
 let currentReviewId = null;
 let loggingMode = false;
+let editingExpId = null; // 2026-06-27: which logged experience (if any) is currently showing its edit form in place, instead of the old delete-and-re-add-only workflow
 let schedulingMode = false;
 let dontcareMode = false;
 let forcedReviewId = null; // when set, a specific show (e.g. a due "on the calendar" prompt) takes over Review regardless of the normal queue
@@ -1175,7 +1176,7 @@ function renderReviewBody(show){
     wireExperienceForm(show.id, true, ()=>{
       loggingMode=false;
       renderLoggedExperiences(show);
-    });
+    }, null, body);
     renderLoggedExperiences(show);
   }
 }
@@ -1190,13 +1191,14 @@ function renderLoggedExperiences(show){
   }
   if(state.experiences.length===0){ container.innerHTML=''; return; }
   container.innerHTML = `<div style="font-family:var(--font-mono);font-size:11px;color:#7a756d;margin-bottom:6px;">LOGGED SO FAR</div>` +
-    state.experiences.map(e=>expEntryHtml(show.id,e)).join('') +
+    expListOrEditHtml(show.id, state.experiences) +
     `<div class="btnrow" style="margin-top:10px;">
        <button class="btn small" id="addAnotherExp">+ log another experience</button>
        <button class="btn primary small" id="doneWithShow">done with this show</button>
      </div>`;
-  document.getElementById('addAnotherExp').onclick = ()=>{ loggingMode=true; renderReviewBody(show); };
-  document.getElementById('doneWithShow').onclick = ()=>{ currentReviewId=null; loggingMode=false; forcedReviewId=null; renderReview(); };
+  document.getElementById('addAnotherExp').onclick = ()=>{ editingExpId=null; loggingMode=true; renderReviewBody(show); };
+  document.getElementById('doneWithShow').onclick = ()=>{ currentReviewId=null; loggingMode=false; editingExpId=null; forcedReviewId=null; renderReview(); };
+  wireExpListOrEdit(container, show.id, state.experiences, ()=> renderLoggedExperiences(show));
 }
 
 function advanceReview(){
@@ -1204,6 +1206,7 @@ function advanceReview(){
   loggingMode = false;
   schedulingMode = false;
   dontcareMode = false;
+  editingExpId = null;
   forcedReviewId = null;
   renderReview();
 }
@@ -1218,6 +1221,7 @@ function goToShowInReview(id){
   loggingMode = false;
   schedulingMode = false;
   dontcareMode = false;
+  editingExpId = null;
   renderReview();
 }
 
@@ -1234,6 +1238,7 @@ function goToShowFromVibeToLog(id){
   loggingMode = true;
   schedulingMode = false;
   dontcareMode = false;
+  editingExpId = null;
   document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   const reviewNavBtn = document.querySelector("nav button[data-tab='review']");
@@ -1253,30 +1258,34 @@ function goToShowFromVibe(id){
   loggingMode = false;
   schedulingMode = false;
   dontcareMode = false;
+  editingExpId = null;
   const reviewNavBtn = document.querySelector("nav button[data-tab='review']");
   if(reviewNavBtn) reviewNavBtn.click();
   else renderReview();
 }
 
 /* ============================================================
-   EXPERIENCE FORM (shared between Review + Library)
+   EXPERIENCE FORM (shared between Review + Library, and now also
+   in-place editing — pass `prefill` as the existing experience object,
+   including its `id`, to pre-fill every field and save via
+   updateExperience() instead of addExperience() on submit.)
    ============================================================ */
-function experienceFormHtml(showId, compact){
+function experienceFormHtml(showId, compact, prefill){
   const formId = 'expform-'+showId+'-'+Math.floor(Math.random()*99999);
   return `
   <div class="exp-form" data-form="${formId}">
     <div class="field">
       <label>Capacity</label>
       <div class="capacity-grid">
-        ${CAPACITIES.map(c=>`<span class="chip cap-chip" data-cap="${c.key}">${c.icon} ${c.label}</span>`).join('')}
+        ${CAPACITIES.map(c=>`<span class="chip cap-chip${prefill && prefill.capacity===c.key ? ' on' : ''}" data-cap="${c.key}">${c.icon} ${c.label}</span>`).join('')}
       </div>
     </div>
-    <div id="subfields-${formId}"></div>
+    <div id="subfields-${formId}">${prefill ? subfieldsHtml(formId, prefill.capacity, prefill) : ''}</div>
   </div>
   `;
 }
 
-function subfieldsHtml(formId, capKey){
+function subfieldsHtml(formId, capKey, prefill){
   const showsVenue = ['live','proshot'].includes(capKey);
   const showsSubLabel = ['recording','movie','proshot'].includes(capKey);
   const showsRating = true;
@@ -1284,68 +1293,68 @@ function subfieldsHtml(formId, capKey){
     ${capKey==='live' ? `
     <div class="field">
       <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-family:var(--font-body);font-size:14px;color:var(--ink);">
-        <input type="checkbox" class="f-performed" style="width:auto;"> I performed in this one
+        <input type="checkbox" class="f-performed" style="width:auto;" ${prefill && prefill.performedIn ? 'checked' : ''}> I performed in this one
       </label>
     </div>` : ''}
     ${showsSubLabel ? `
     <div class="field">
       <label>Which version / release?</label>
-      <input type="text" class="f-sublabel" placeholder="e.g. OBC, 2024 revival cast, movie soundtrack, the PBS broadcast...">
+      <input type="text" class="f-sublabel" placeholder="e.g. OBC, 2024 revival cast, movie soundtrack, the PBS broadcast..." value="${escapeHtml(prefill && prefill.subLabel || '')}">
     </div>` : ''}
     ${showsVenue ? `
     <div class="field">
       <label>Venue type</label>
       <div class="capacity-row">
-        ${VENUE_TYPES.map(v=>`<span class="chip venue-chip" data-venue="${escapeHtml(v)}">${escapeHtml(v)}</span>`).join('')}
+        ${VENUE_TYPES.map(v=>`<span class="chip venue-chip${prefill && prefill.venueTypes && prefill.venueTypes.includes(v) ? ' on' : ''}" data-venue="${escapeHtml(v)}">${escapeHtml(v)}</span>`).join('')}
       </div>
     </div>` : ''}
     <div class="field">
       <label>City (optional)</label>
-      <input type="text" class="f-location" placeholder="if you remember">
+      <input type="text" class="f-location" placeholder="if you remember" value="${escapeHtml(prefill && prefill.location || '')}">
     </div>
     <div class="field">
       <label>Roughly when (optional, no need to be exact)</label>
-      <input type="text" class="f-datenote" placeholder="e.g. ~2017, senior year, before kids">
+      <input type="text" class="f-datenote" placeholder="e.g. ~2017, senior year, before kids" value="${escapeHtml(prefill && prefill.dateNote || '')}">
     </div>
     ${showsRating ? `
     <div class="field">
       <label>Rating</label>
       <div class="rating-row">
-        <span class="rate-btn f-rate-none on" data-r="">skip</span>
-        ${[1,2,3,4,5].map(n=>`<span class="rate-btn f-rate" data-r="${n}">${n}</span>`).join('')}
+        <span class="rate-btn f-rate-none${(!prefill || prefill.rating==null) ? ' on' : ''}" data-r="">skip</span>
+        ${[1,2,3,4,5].map(n=>`<span class="rate-btn f-rate${prefill && prefill.rating===n ? ' on' : ''}" data-r="${n}">${n}</span>`).join('')}
       </div>
-      <div class="rate-hint" id="ratehint-${formId}">&nbsp;</div>
+      <div class="rate-hint" id="ratehint-${formId}">${prefill && prefill.rating ? RATING_LABELS[prefill.rating] : '&nbsp;'}</div>
     </div>` : ''}
     <div class="field">
       <label>Verdict</label>
       <div class="capacity-row">
-        ${VERDICTS.map(v=>`<span class="chip verdict-chip" data-v="${v.key}">${v.label}</span>`).join('')}
+        ${VERDICTS.map(v=>`<span class="chip verdict-chip${prefill && prefill.verdict===v.key ? ' on' : ''}" data-v="${v.key}">${v.label}</span>`).join('')}
       </div>
     </div>
     <div class="field">
       <label>Impression / blurb</label>
-      <textarea class="f-blurb" placeholder="what stuck with you"></textarea>
+      <textarea class="f-blurb" placeholder="what stuck with you">${escapeHtml(prefill && prefill.blurb || '')}</textarea>
     </div>
     <div class="field">
       <label>One little standout moment (optional)</label>
-      <input type="text" class="f-moment" placeholder="e.g. the understudy's accent, a lighting cue that broke">
+      <input type="text" class="f-moment" placeholder="e.g. the understudy's accent, a lighting cue that broke" value="${escapeHtml(prefill && prefill.moment || '')}">
     </div>
     <div class="btnrow">
-      <button class="btn amber f-save">Save this experience</button>
+      <button class="btn amber f-save">${prefill ? 'Save changes' : 'Save this experience'}</button>
       <button class="btn small f-cancel">Cancel</button>
     </div>
   `;
 }
 
-function wireExperienceForm(showId, isNew, onDone){
-  const wrapper = document.querySelector(`[data-form]`);
+function wireExperienceForm(showId, isNew, onDone, prefill, containerEl){
+  const wrapper = (containerEl||document).querySelector(`[data-form]`);
   if(!wrapper) return;
   const formId = wrapper.dataset.form;
   const subEl = document.getElementById('subfields-'+formId);
-  let selectedCap = null;
-  let selectedVenues = new Set();
-  let selectedRating = null;
-  let selectedVerdict = null;
+  let selectedCap = prefill ? prefill.capacity : null;
+  let selectedVenues = (prefill && prefill.venueTypes) ? new Set(prefill.venueTypes) : new Set();
+  let selectedRating = (prefill && prefill.rating!=null) ? prefill.rating : null;
+  let selectedVerdict = (prefill && prefill.verdict) ? prefill.verdict : null;
 
   wrapper.querySelectorAll('.cap-chip').forEach(chip=>{
     chip.onclick = ()=>{
@@ -1402,11 +1411,20 @@ function wireExperienceForm(showId, isNew, onDone){
         blurb: subEl.querySelector('.f-blurb').value.trim(),
         moment: subEl.querySelector('.f-moment').value.trim(),
       };
-      addExperience(showId, exp);
+      if(prefill && prefill.id){
+        updateExperience(showId, prefill.id, exp);
+      } else {
+        addExperience(showId, exp);
+      }
       onDone();
     };
     if(cancelBtn) cancelBtn.onclick = ()=> onDone();
   }
+  // For an edit, subfields are already rendered inline (experienceFormHtml
+  // inlines subfieldsHtml() when given a prefill) — wire them immediately
+  // rather than waiting for a capacity-chip click, which only happens for
+  // a brand-new entry that starts with no capacity picked yet.
+  if(prefill) wireSubfields();
 }
 
 function expEntryHtml(showId, e){
@@ -1429,10 +1447,48 @@ function expEntryHtml(showId, e){
       ${e.blurb?`<div class="blurb">"${escapeHtml(e.blurb)}"</div>`:''}
       ${e.moment?`<div class="meta">★ ${escapeHtml(e.moment)}</div>`:''}
       <div class="exp-entry-actions">
+        <button class="btn small ghost-dark" data-edit="${showId}|${e.id}">edit</button>
         <button class="btn small danger" data-del="${showId}|${e.id}">remove</button>
       </div>
     </div>
   `;
+}
+
+// Shared by Review's "LOGGED SO FAR" list and Library's detail popup: renders
+// every experience as its normal static entry, EXCEPT the one (if any)
+// currently being edited in place (editingExpId), which renders the same
+// experience form used for logging a new one — just pre-filled, saving via
+// updateExperience() instead of addExperience() on submit. Closes the old
+// delete-and-re-add-only gap.
+function expListOrEditHtml(showId, experiences){
+  return experiences.map(e=>{
+    if(editingExpId === e.id){
+      return `<div class="exp-edit-wrap" data-edit-wrap="${showId}|${e.id}">${experienceFormHtml(showId, false, e)}</div>`;
+    }
+    return expEntryHtml(showId, e);
+  }).join('');
+}
+
+// Wires whatever expListOrEditHtml() just rendered into `container`: the
+// edit form (if one of the experiences is currently being edited) and the
+// "edit" buttons on every other entry. refreshFn re-renders this same list
+// in place after save/cancel/entering edit mode.
+function wireExpListOrEdit(container, showId, experiences, refreshFn){
+  const editWrap = container.querySelector('[data-edit-wrap]');
+  if(editWrap){
+    const editingId = editWrap.dataset.editWrap.split('|')[1];
+    const exp = experiences.find(x=>x.id===editingId);
+    if(exp){
+      wireExperienceForm(showId, false, ()=>{ editingExpId=null; refreshFn(); }, exp, container);
+    }
+  }
+  container.querySelectorAll('[data-edit]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const [, expId] = btn.dataset.edit.split('|');
+      editingExpId = expId;
+      refreshFn();
+    };
+  });
 }
 
 document.addEventListener('click', (ev)=>{
@@ -1440,15 +1496,12 @@ document.addEventListener('click', (ev)=>{
   if(delBtn){
     const [showId, expId] = delBtn.dataset.del.split('|');
     if(confirm('Remove this logged experience?')){
+      if(editingExpId === expId) editingExpId = null; // can't be mid-edit on something that no longer exists
       deleteExperience(showId, expId);
       // If a Library detail popup for this show is open, it has its own copy of the
       // experience list and won't update just because the page behind it re-renders.
-      const modalExpHost = document.getElementById('libDetailExp');
-      if(modalExpHost){
-        const freshState = getState(showId);
-        modalExpHost.innerHTML = freshState.experiences.map(e=>expEntryHtml(showId,e)).join('')
-          || "<p style=\"font-size:13px;color:#7a756d;\">No experiences logged. Just a someday or dont-care flag.</p>";
-      }
+      const modalBack = delBtn.closest('.modal-backdrop');
+      if(modalBack) refreshLibDetailExp(modalBack, showId);
       if(document.getElementById('tab-library').classList.contains('active')) renderLibrary();
       if(document.getElementById('tab-review').classList.contains('active')) renderReview();
     }
@@ -1775,9 +1828,15 @@ function renderLibList(){
    duplicate accidental add (e.g. the BBAJ add-modal bug, fixed in 25n) falls
    into: invisible to the main grid (no experience), invisible to the other
    three sections (no status), reachable before this fix only by randomly
-   cycling Review's shuffled queue until it happened to come up. Unlike the
-   other three sections, its items are clickable — that's the entire point,
-   since the only way out of this bucket is opening the show to delete it. */
+   cycling Review's shuffled queue until it happened to come up. Its items
+   are clickable, same reason as "scheduled" below — the only way out of
+   this bucket is opening the show to delete it.
+   2026-06-27, later same day: "scheduled" is now clickable too — closes the
+   gap where a seed show flagged "on the calendar" via Review with nothing
+   logged against it yet had no edit/cancel path anywhere once its date
+   passed (the due-banner just nagged forever). Opens the same detail popup
+   and calendar control every other reachable show already has; someday and
+   don't-care deliberately stay non-clickable for now, scoped decision. */
 function renderLibSidelists(){
   const host = document.getElementById('libSidelists');
   if(!host) return;
@@ -1800,7 +1859,7 @@ function renderLibSidelists(){
     libSectionHtml('scheduled', 'scheduled', scheduledShows, s=>{
       const st = getState(s.id);
       return st.scheduledDate ? `<span class="sub-extra"> · on the calendar for ${escapeHtml(st.scheduledDate)}</span>` : '';
-    }) +
+    }, true) +
     libSectionHtml('someday', 'someday', somedayShows, ()=>'') +
     libSectionHtml('dontcare', "don't care", dontcareShows, s=>{
       const st = getState(s.id);
@@ -1893,15 +1952,30 @@ function wireLdCalendar(back, showId){
   if(setBtn) setBtn.onclick = ()=> openDatePrompt(null);
   if(changeBtn) changeBtn.onclick = ()=> openDatePrompt(getState(showId).scheduledDate);
   if(clearBtn) clearBtn.onclick = ()=>{
-    if(!confirm('Remove this calendar entry?')) return;
+    // No confirm prompt (removed 2026-06-27, Cameron's call) — removing a
+    // calendar date is low-stakes and instantly re-addable, the extra tap
+    // wasn't earning its keep.
     setStatus(showId, null);
     refresh();
   };
 }
 
+// Renders #libDetailExp inside an open detail popup and wires whatever it
+// contains — static entries, or one experience's edit form if editingExpId
+// matches it (see expListOrEditHtml/wireExpListOrEdit below). Pulled out of
+// openLibDetail() so the delete handler and the edit form's own
+// save/cancel can both call back into it without duplicating this logic.
+function refreshLibDetailExp(back, showId){
+  const host = back.querySelector('#libDetailExp');
+  if(!host) return;
+  const freshState = getState(showId);
+  host.innerHTML = expListOrEditHtml(showId, freshState.experiences) || "<p style=\"font-size:13px;color:#7a756d;\">No experiences logged yet.</p>";
+  wireExpListOrEdit(host, showId, freshState.experiences, ()=> refreshLibDetailExp(back, showId));
+}
+
 function openLibDetail(showId){
+  editingExpId = null; // never assume a leftover edit-in-progress from whatever was open before this
   const show = getShow(showId);
-  const state = getState(showId);
   const back = document.createElement('div');
   back.className = 'modal-backdrop';
   back.innerHTML = `
@@ -1910,7 +1984,7 @@ function openLibDetail(showId){
       <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;" id="ld-credits">${show.year?show.year+' · ':''}${show.team.map(escapeHtml).join(', ')||(show.custom?'creative team unknown':'')}</p>
       <div id="ld-tags">${show.tags && show.tags.length ? `<div class="tags" style="margin-bottom:6px;">${show.tags.map(t=>`<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>` : ''}</div>
       <div id="ld-calendar" style="margin-bottom:8px;">${ldCalendarHtml(showId)}</div>
-      <div id="libDetailExp">${state.experiences.map(e=>expEntryHtml(showId,e)).join('') || "<p style=\"font-size:13px;color:#7a756d;\">No experiences logged yet.</p>"}</div>
+      <div id="libDetailExp"></div>
       <div class="btnrow">
         <button class="btn amber" id="ld-add">+ log an experience</button>
         ${show.custom ? '<button class="btn ghost-dark" id="ld-edit-details">Edit details</button>' : ''}
@@ -1922,14 +1996,17 @@ function openLibDetail(showId){
   `;
   document.body.appendChild(back);
   wireLdCalendar(back, showId);
-  back.querySelector('#ld-close').onclick = ()=>{ back.remove(); renderLibrary(); };
+  refreshLibDetailExp(back, showId);
+  back.querySelector('#ld-close').onclick = ()=>{ editingExpId = null; back.remove(); renderLibrary(); };
   back.querySelector('#ld-add').onclick = ()=>{
+    editingExpId = null; // adding new and editing an existing one are mutually exclusive at any moment
+    refreshLibDetailExp(back, showId);
     const host = back.querySelector('#ld-formhost');
     host.innerHTML = experienceFormHtml(showId, false);
     wireExperienceForm(showId, false, ()=>{
       back.remove();
       renderLibrary();
-    });
+    }, null, back);
   };
   const editBtn = back.querySelector('#ld-edit-details');
   if(editBtn) editBtn.onclick = ()=> openEditCustomShowModal(showId, ()=>{
@@ -1997,6 +2074,117 @@ function openEditCustomShowModal(showId, onSaved){
 // against it, none below a 4 — and is shared by the stat card, the local
 // Quick Check, and the live Computer Friend's data prep, written once here
 // so the three can't quietly drift the way the collaborator floor once did.
+/* ============================================================
+   SHARED COLLABORATOR-CREDIT HELPERS
+   Used by all three places that compute collaborator stats (the Vibe Check
+   stat card, runLocalVibeCheck(), runLiveComputerFriend()) so the three
+   can't drift the way the 2-show/50% floor itself once did.
+
+   Two independent fixes live here:
+   1. DUO MERGING — a name-pair that's co-credited on 2+ of your own logged
+      shows (regardless of who else is on the team each time) gets treated
+      as one combined entity ("Comden & Green") instead of two unrelated
+      half-credits. Any OTHER show either half wrote without the other still
+      credits that person solo — same person, two different lines, if and
+      only if that's what your own logged data actually shows.
+   2. SMALL-SAMPLE SHRINKAGE — the displayed bought-in rate / avg rating
+      pulls toward your own overall numbers the thinner a name's sample is,
+      so a lucky 2-show 100% can't outrank a real 8-show 87% just because
+      the raw percentage is bigger. Barely moves once there's real history
+      behind a name. Cameron's call (2026-06-27): go with the automatic
+      version rather than a manual floor-raise or a label-only flag.
+   ============================================================ */
+const DUO_THRESHOLD = 2; // shared logged shows needed to count as a recurring pair
+const SHRINK_K = 4; // "virtual" average-ish experiences blended in for shrinkage — higher = stronger pull toward your overall average for thin samples, smaller effect once a name has real history
+
+// Finds every pair of names that's been credited together on 2+ of the
+// user's own logged shows. Returns a map: name -> their one recognized
+// partner (only set when BOTH sides agree on each other as their best/only
+// qualifying partner — if A's strongest pairing is B but B's strongest
+// pairing is someone else, neither merges; both stay solo rather than
+// showing a one-sided pairing).
+function getRecognizedDuos(loggedShows){
+  const pairShowSets = {}; // "NameA||NameB" (alphabetical) -> Set of show titles
+  loggedShows.forEach(s=>{
+    const team = s.team.filter(p=>p!=='various' && p!=='various artists');
+    for(let i=0;i<team.length;i++){
+      for(let j=i+1;j<team.length;j++){
+        const key = [team[i],team[j]].sort().join('||');
+        if(!pairShowSets[key]) pairShowSets[key] = new Set();
+        pairShowSets[key].add(s.title);
+      }
+    }
+  });
+  const candidatesByName = {};
+  Object.entries(pairShowSets).forEach(([key, titles])=>{
+    if(titles.size < DUO_THRESHOLD) return;
+    const [a,b] = key.split('||');
+    [[a,b],[b,a]].forEach(([self,partner])=>{
+      if(!candidatesByName[self]) candidatesByName[self] = [];
+      candidatesByName[self].push({partner, count:titles.size});
+    });
+  });
+  const duoMap = {};
+  Object.entries(candidatesByName).forEach(([name, candidates])=>{
+    // More shared shows wins; alphabetical-by-partner-name is the tiebreaker
+    // for the rare case of an exact tie — there's no principled reason to
+    // prefer one pairing over another automatically beyond that.
+    candidates.sort((a,b)=> b.count-a.count || a.partner.localeCompare(b.partner));
+    duoMap[name] = candidates[0].partner;
+  });
+  Object.keys(duoMap).forEach(name=>{
+    if(duoMap[duoMap[name]] !== name) delete duoMap[name];
+  });
+  return duoMap;
+}
+
+// Given one show's team and the recognized-duos map, returns the credit
+// unit(s) for that show: a merged "A & B" unit for any recognized pair both
+// present on this show's team, plus a solo unit for anyone else credited.
+function creditUnitsForShow(team, duoMap){
+  const cleanTeam = team.filter(p=>p!=='various' && p!=='various artists');
+  const used = new Set();
+  const units = [];
+  cleanTeam.forEach(name=>{
+    if(used.has(name)) return;
+    const partner = duoMap[name];
+    if(partner && cleanTeam.includes(partner) && !used.has(partner)){
+      used.add(name); used.add(partner);
+      const ordered = cleanTeam.indexOf(name) < cleanTeam.indexOf(partner) ? [name,partner] : [partner,name];
+      units.push({names: ordered, displayName: ordered.join(' & ')});
+    } else {
+      used.add(name);
+      units.push({names:[name], displayName:name});
+    }
+  });
+  return units;
+}
+
+// Pulls a raw sum/count toward priorMean the thinner the sample (n) is —
+// see SHRINK_K above. Degrades gracefully to priorMean itself at n=0.
+function shrinkToward(sum, n, priorMean, k){
+  if(n<=0) return priorMean;
+  return (sum + k*priorMean) / (n + k);
+}
+
+// The "your overall average, full stop" numbers shrinkage pulls toward —
+// computed once across every logged experience, not just ones from
+// collaborators who already clear the 2-show floor (that would be circular).
+function getGlobalCollabBaseline(loggedShows){
+  let totalExp=0, totalBoughtIn=0, ratingSum=0, ratingCount=0;
+  loggedShows.forEach(s=>{
+    getState(s.id).experiences.forEach(e=>{
+      totalExp++;
+      if(e.verdict==='boughtIn' || e.verdict==='allIn') totalBoughtIn++;
+      if(e.rating!=null){ ratingSum+=e.rating; ratingCount++; }
+    });
+  });
+  return {
+    meanRate: totalExp>0 ? totalBoughtIn/totalExp : 0.5,
+    meanRating: ratingCount>0 ? ratingSum/ratingCount : null,
+  };
+}
+
 function getComebackShows(loggedShows){
   return loggedShows.map(s=>{
     const st = getState(s.id);
@@ -2013,38 +2201,48 @@ function renderVibe(){
   const el = document.getElementById('tab-vibe');
   const loggedShows = Object.values(allShows()).filter(s=>getState(s.id).experiences.length>0);
 
-  // collaborator stats
+  // collaborator stats — duo-merged credit units, shrunk toward the user's
+  // own overall numbers the thinner a name's sample is (see the shared
+  // helpers above for both mechanisms).
+  const duoMap = getRecognizedDuos(loggedShows);
+  const baseline = getGlobalCollabBaseline(loggedShows);
   const collabMap = {};
   loggedShows.forEach(s=>{
     const st = getState(s.id);
     const ratings = st.experiences.map(e=>e.rating).filter(r=>r!==null && r!==undefined);
     const boughtInCount = st.experiences.filter(e=>e.verdict==='boughtIn' || e.verdict==='allIn').length;
     const total = st.experiences.length;
-    s.team.forEach(person=>{
-      if(person==='various' || person==='various artists') return; // not a nameable collaborator — same exclusion runLocalVibeCheck()/runLiveComputerFriend() already apply
-      if(!collabMap[person]) collabMap[person] = {ratings:[], boughtIn:0, total:0, shows:new Set(), breakdown:{}};
-      collabMap[person].ratings.push(...ratings);
-      collabMap[person].boughtIn += boughtInCount;
-      collabMap[person].total += total;
-      collabMap[person].shows.add(s.title);
+    creditUnitsForShow(s.team, duoMap).forEach(unit=>{
+      const key = unit.displayName;
+      if(!collabMap[key]) collabMap[key] = {names:unit.names, ratings:[], boughtIn:0, total:0, shows:new Set(), breakdown:{}};
+      collabMap[key].ratings.push(...ratings);
+      collabMap[key].boughtIn += boughtInCount;
+      collabMap[key].total += total;
+      collabMap[key].shows.add(s.title);
       // Per-show experience list, for the audit popup. A show with 2+ logged
       // experiences (e.g. listened AND watched a bootleg) feeds 2+ data
       // points into this person's avg/bought-in numbers even though it's
       // still just 1 entry in `shows` — the popup used to only list show
       // titles, with no way to see that, which is exactly what made the
       // Laurents/Sondheim numbers confusing to audit by eye this session.
-      if(!collabMap[person].breakdown[s.title]) collabMap[person].breakdown[s.title] = [];
-      collabMap[person].breakdown[s.title].push(...st.experiences.map(e=>({rating:e.rating, verdict:e.verdict})));
+      if(!collabMap[key].breakdown[s.title]) collabMap[key].breakdown[s.title] = [];
+      collabMap[key].breakdown[s.title].push(...st.experiences.map(e=>({rating:e.rating, verdict:e.verdict})));
     });
   });
   const collabStats = Object.entries(collabMap)
-    .filter(([_,v])=>v.shows.size>=2 && (v.boughtIn/v.total)>=0.5) // need 2+ DIFFERENT shows AND a real bought-in rate (≥50%) — the same bar runLocalVibeCheck()'s own recs logic already treats as "a real signal." shows.size alone let in collaborators with a 0% bought-in rate, which is the opposite of "you keep buying into this person." Same floor runLocalVibeCheck()/runLiveComputerFriend() now apply.
     .map(([name,v])=>{
-      const avg = v.ratings.length ? (v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length) : null;
-      const boughtInRate = v.boughtIn / v.total;
+      const rawAvg = v.ratings.length ? (v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length) : null;
+      const rawBoughtInRate = v.boughtIn / v.total;
+      const boughtInRate = shrinkToward(v.boughtIn, v.total, baseline.meanRate, SHRINK_K);
+      const avg = (rawAvg!=null && baseline.meanRating!=null) ? shrinkToward(v.ratings.reduce((a,b)=>a+b,0), v.ratings.length, baseline.meanRating, SHRINK_K) : rawAvg;
       const showBreakdown = [...v.shows].map(title=>({title, experiences: v.breakdown[title]||[]}));
-      return {name, avg, boughtInRate, showCount: v.shows.size, showTitles: [...v.shows], showBreakdown};
+      return {name, names:v.names, avg, rawAvg, boughtInRate, rawBoughtInRate, showCount: v.shows.size, showTitles: [...v.shows], showBreakdown};
     })
+    // need 2+ DIFFERENT shows AND a real (shrinkage-adjusted) bought-in rate
+    // of ≥50% — the floor itself now checks the adjusted number, not the raw
+    // one, so a thin sample that only "looks" 50%+ on raw numbers alone can
+    // fail to qualify. Same floor runLocalVibeCheck()/runLiveComputerFriend() apply.
+    .filter(c=>c.showCount>=2 && c.boughtInRate>=0.5)
     .sort((a,b)=> b.boughtInRate - a.boughtInRate || (b.avg||0)-(a.avg||0))
     .slice(0,8);
 
@@ -2071,7 +2269,7 @@ function renderVibe(){
     <p class="section-sub">what the ledger says about your actual taste, not the popular consensus</p>
 
     ${statCardHtml('collab', 'Creative collaborators you keep buying into',
-      '<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">Composers, lyricists, and book writers you keep actually buying into — not just worked with often. Needs 2+ different shows logged against that name and a real bought-in rate of 50% or higher, so two soured-on titles from the same writer can\'t sneak in on show-count alone.</p>',
+      '<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">Composers, lyricists, and book writers you keep actually buying into — not just worked with often. Needs 2+ different shows logged against that name (or pair — see below) and a real bought-in rate of 50% or higher. A name-pair that\'s co-credited on 2+ of your logged shows (Comden & Green, etc.) shows as one combined entity rather than two separate half-credits; any other show either of them did without the other still counts toward them solo. The percentage and average shown are also adjusted for sample size — a 2-show 100% gets pulled toward your overall average more than an 8-show 87% does, so a lucky thin sample can\'t outrank a real track record. Click a name to see the raw, unadjusted numbers behind it.</p>',
       '',
       collabStats.length ? collabStats.map((c,i)=>`
         <div class="collab-row"><span><button class="collab-name-btn" data-collab-idx="${i}">${escapeHtml(c.name)}</button> <span style="color:var(--chalk-dim)">(${c.showCount} show${c.showCount===1?'':'s'})</span></span>
@@ -2116,6 +2314,7 @@ function renderVibe(){
       <div class="vibe-tab-row">
         <button class="vibe-tab-pill${vibeActiveTab==='local'?' active':''}" data-vibe-tab="local">Quick check</button>
         <button class="vibe-tab-pill${vibeActiveTab==='live'?' active':''}" data-vibe-tab="live">Computer Friend (live)</button>
+        <button class="btn ghost-dark small" id="vibeHistBtn" style="margin-left:auto;">📜 past runs</button>
       </div>
       <div id="vibeResultHost"></div>
     </div>
@@ -2143,6 +2342,7 @@ function renderVibe(){
   };
   document.getElementById('runVibeCheck').onclick = ()=> runLocalVibeCheck();
   document.getElementById('runLiveComputerFriend').onclick = ()=> runLiveComputerFriend();
+  document.getElementById('vibeHistBtn').onclick = ()=> openVibeHistoryModal();
   el.querySelectorAll('.vibe-tab-pill').forEach(p=>{
     p.onclick = ()=> setVibeActiveTab(p.dataset.vibeTab);
   });
@@ -2190,8 +2390,8 @@ function openCollabShowsModal(c){
   back.innerHTML = `
     <div class="modal">
       <h2 class="section-title" style="color:var(--ink)">${escapeHtml(c.name)}</h2>
-      <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">${c.showCount} show${c.showCount===1?'':'s'} behind this stat · ${Math.round(c.boughtInRate*100)}% loved or bought in${c.avg?' · '+c.avg.toFixed(1)+'/5 avg':''}</p>
-      <p style="font-family:var(--font-mono);font-size:10px;color:var(--chalk-dim);margin-top:-4px;">Note: the avg/percentage above are computed per logged experience, not per show — a show logged more than once (e.g. listened AND watched) contributes more than one data point below.</p>
+      <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">${c.showCount} show${c.showCount===1?'':'s'} behind this stat · ${Math.round(c.boughtInRate*100)}% loved or bought in${c.avg?' · '+c.avg.toFixed(1)+'/5 avg':''} <span style="color:var(--chalk-dim);">(adjusted for sample size)</span></p>
+      <p style="font-family:var(--font-mono);font-size:10px;color:var(--chalk-dim);margin-top:-4px;">Raw, unadjusted: ${Math.round(c.rawBoughtInRate*100)}% bought-in${c.rawAvg!=null?', '+c.rawAvg.toFixed(1)+'/5 avg':''}. The avg/percentage above are computed per logged experience, not per show — a show logged more than once (e.g. listened AND watched) contributes more than one data point below.</p>
       <div>${breakdownHtml}</div>
       <div class="btnrow"><button class="btn small" id="collabModalClose">Close</button></div>
     </div>
@@ -2226,30 +2426,39 @@ function runLocalVibeCheck(){
 
   // ---- collaborator stats, same rule as the card above, recomputed here
   // so this function can stand alone ----
+  const duoMap = getRecognizedDuos(loggedShows);
+  const baseline = getGlobalCollabBaseline(loggedShows);
   const collabMap = {};
   loggedShows.forEach(s=>{
     const st = getState(s.id);
     const ratings = st.experiences.map(e=>e.rating).filter(r=>r!==null && r!==undefined);
     const boughtInCount = st.experiences.filter(e=>e.verdict==='boughtIn' || e.verdict==='allIn').length;
     const total = st.experiences.length;
-    s.team.forEach(person=>{
-      if(person==='various' || person==='various artists') return; // not a nameable collaborator
-      if(!collabMap[person]) collabMap[person] = {ratings:[], boughtIn:0, total:0, shows:new Set()};
-      collabMap[person].ratings.push(...ratings);
-      collabMap[person].boughtIn += boughtInCount;
-      collabMap[person].total += total;
-      collabMap[person].shows.add(s.title);
+    creditUnitsForShow(s.team, duoMap).forEach(unit=>{
+      const key = unit.displayName;
+      if(!collabMap[key]) collabMap[key] = {names:unit.names, ratings:[], boughtIn:0, total:0, shows:new Set()};
+      collabMap[key].ratings.push(...ratings);
+      collabMap[key].boughtIn += boughtInCount;
+      collabMap[key].total += total;
+      collabMap[key].shows.add(s.title);
     });
   });
   const collabStats = Object.entries(collabMap)
-    .filter(([_,v])=>v.shows.size>=2 && (v.boughtIn/v.total)>=0.5) // need 2+ DIFFERENT shows AND a real bought-in rate (≥50%) — same floor the card and the recs loop below already treat as "a real signal," now applied here too so a 0%-bought-in collaborator never reaches this list at all
-    .map(([name,v])=>({
-      name,
-      avg: v.ratings.length ? v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length : null,
-      boughtInRate: v.boughtIn / v.total,
-      showCount: v.shows.size,
-      showTitles: [...v.shows],
-    }))
+    .map(([name,v])=>{
+      const rawAvg = v.ratings.length ? v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length : null;
+      const boughtInRate = shrinkToward(v.boughtIn, v.total, baseline.meanRate, SHRINK_K);
+      const avg = (rawAvg!=null && baseline.meanRating!=null) ? shrinkToward(v.ratings.reduce((a,b)=>a+b,0), v.ratings.length, baseline.meanRating, SHRINK_K) : rawAvg;
+      return {
+        name,
+        names: v.names,
+        avg,
+        boughtInRate,
+        showCount: v.shows.size,
+        showTitles: [...v.shows],
+      };
+    })
+    // need 2+ DIFFERENT shows AND a real (shrinkage-adjusted) bought-in rate ≥50%
+    .filter(c=>c.showCount>=2 && c.boughtInRate>=0.5)
     .sort((a,b)=> b.boughtInRate - a.boughtInRate || (b.avg||0)-(a.avg||0));
 
   // ---- stuck-at-fine, same rule as the flag card ----
@@ -2282,7 +2491,7 @@ function runLocalVibeCheck(){
     // No boughtInRate<0.5 check needed here — collabStats itself is already gated to ≥50% above.
     for(const s of Object.values(allShows())){
       if(touchedIds.has(s.id) || dontcareIds.has(s.id)) continue;
-      if(s.team.includes(c.name)){
+      if(c.names.every(n=>s.team.includes(n))){
         recs.push({title:s.title, because:c.name, showId:s.id}); // local recs are always an existing show, never need the lazy-create path live recs sometimes do
         if(recs.length>=3) break outer;
       }
@@ -2417,6 +2626,55 @@ function vibeRecRowHtml(entry, rec, idx){
   </div>`;
 }
 
+// Shared wiring for a rendered batch of rec rows (vibeRecRowHtml output) —
+// used by both the main result box and the past-runs history modal, so
+// "Log it"/"Someday" behave identically wherever a rec is shown. refreshFn
+// is called after a "Someday" tap so whichever view is currently showing
+// (the live result box, or a specific past-run detail screen) redraws
+// itself; "Log it" always navigates away to the logging form, so it doesn't
+// need a refresh callback at all.
+function wireVibeRecButtons(container, refreshFn){
+  container.querySelectorAll('[data-vibe-rec-go]').forEach(btn=>{
+    btn.onclick = ()=> goToShowFromVibe(btn.dataset.vibeRecGo);
+  });
+  container.querySelectorAll('[data-vibe-rec-log]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const [entryId, idxStr] = btn.dataset.vibeRecLog.split('|');
+      const targetEntry = (DATA.vibeHistory||[]).find(e=>e.id===entryId);
+      const rec = targetEntry && targetEntry.recs[Number(idxStr)];
+      if(!rec) return;
+      if(!rec.showId){
+        // Same lazy-add Someday already used — a live-tier title with
+        // nothing in your data yet only becomes a real custom show (tagged
+        // ai-suggested) at the moment you actually act on it.
+        rec.showId = addCustomShow({title:rec.title, year:rec.pendingYear||null, team:rec.pendingTeam||[], tags:['ai-suggested']});
+        delete rec.pendingYear;
+        delete rec.pendingTeam;
+        saveData();
+      }
+      goToShowFromVibeToLog(rec.showId);
+    };
+  });
+  container.querySelectorAll('[data-vibe-rec-someday]').forEach(btn=>{
+    btn.onclick = ()=>{
+      const [entryId, idxStr] = btn.dataset.vibeRecSomeday.split('|');
+      const targetEntry = (DATA.vibeHistory||[]).find(e=>e.id===entryId);
+      const rec = targetEntry && targetEntry.recs[Number(idxStr)];
+      if(!rec) return;
+      if(!rec.showId){
+        // The lazy-add this was built for: a live-tier title with nothing in
+        // your data yet only becomes a real custom show (tagged ai-suggested)
+        // at the moment you actually act on it, not the instant it was named.
+        rec.showId = addCustomShow({title:rec.title, year:rec.pendingYear||null, team:rec.pendingTeam||[], tags:['ai-suggested']});
+        delete rec.pendingYear;
+        delete rec.pendingTeam;
+      }
+      setStatus(rec.showId, 'someday'); // also saves DATA, including the rec.showId mutation just above
+      refreshFn();
+    };
+  });
+}
+
 // Renders whichever tier vibeActiveTab points to into the single shared
 // #vibeResultHost — called on tab-open (restoring the last saved run for
 // the default tab), right after a fresh run, and on every tab-pill click
@@ -2446,45 +2704,57 @@ function renderVibeResultBox(){
     renderVibeResultBox();
   };
   if(vibeResultCollapsed) return;
-  host.querySelectorAll('[data-vibe-rec-go]').forEach(btn=>{
-    btn.onclick = ()=> goToShowFromVibe(btn.dataset.vibeRecGo);
-  });
-  host.querySelectorAll('[data-vibe-rec-log]').forEach(btn=>{
-    btn.onclick = ()=>{
-      const [entryId, idxStr] = btn.dataset.vibeRecLog.split('|');
-      const targetEntry = (DATA.vibeHistory||[]).find(e=>e.id===entryId);
-      const rec = targetEntry && targetEntry.recs[Number(idxStr)];
-      if(!rec) return;
-      if(!rec.showId){
-        // Same lazy-add Someday already used — a live-tier title with
-        // nothing in your data yet only becomes a real custom show (tagged
-        // ai-suggested) at the moment you actually act on it.
-        rec.showId = addCustomShow({title:rec.title, year:rec.pendingYear||null, team:rec.pendingTeam||[], tags:['ai-suggested']});
-        delete rec.pendingYear;
-        delete rec.pendingTeam;
-        saveData();
-      }
-      goToShowFromVibeToLog(rec.showId);
-    };
-  });
-  host.querySelectorAll('[data-vibe-rec-someday]').forEach(btn=>{
-    btn.onclick = ()=>{
-      const [entryId, idxStr] = btn.dataset.vibeRecSomeday.split('|');
-      const targetEntry = (DATA.vibeHistory||[]).find(e=>e.id===entryId);
-      const rec = targetEntry && targetEntry.recs[Number(idxStr)];
-      if(!rec) return;
-      if(!rec.showId){
-        // The lazy-add this was built for: a live-tier title with nothing in
-        // your data yet only becomes a real custom show (tagged ai-suggested)
-        // at the moment you actually act on it, not the instant it was named.
-        rec.showId = addCustomShow({title:rec.title, year:rec.pendingYear||null, team:rec.pendingTeam||[], tags:['ai-suggested']});
-        delete rec.pendingYear;
-        delete rec.pendingTeam;
-      }
-      setStatus(rec.showId, 'someday'); // also saves DATA, including the rec.showId mutation just above
-      renderVibeResultBox();
-    };
-  });
+  wireVibeRecButtons(host, renderVibeResultBox);
+}
+
+// Past-runs browser (2026-06-27). Vibe history already stores up to 10 runs
+// per tier; this is just the missing window onto it — pick a run from a
+// list, see its full text + recs (still actionable, same Log it/Someday
+// buttons via the shared wireVibeRecButtons above), or go back to the list.
+// Doesn't touch which run counts as "latest" anywhere — purely a read/act
+// surface on top of data that already existed since build 27f.
+function openVibeHistoryModal(){
+  const tier = vibeActiveTab;
+  const list = (DATA.vibeHistory||[]).filter(e=>e.tier===tier).slice().reverse();
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop';
+  back.innerHTML = `
+    <div class="modal" style="max-width:600px;">
+      <h2 class="section-title" style="color:var(--ink)">Past ${tier==='live'?'Computer Friend (live)':'Quick check'} runs</h2>
+      <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">${list.length} saved, newest first. Up to 10 are kept per tier — older ones roll off automatically.</p>
+      <div id="vibeHistBody"></div>
+      <div class="btnrow"><button class="btn small" id="vibeHistClose">Close</button></div>
+    </div>
+  `;
+  document.body.appendChild(back);
+  const bodyEl = back.querySelector('#vibeHistBody');
+
+  function showList(){
+    bodyEl.innerHTML = list.length ? list.map((entry,i)=>`
+      <div class="lib-subitem lib-subitem-clickable" data-hist-idx="${i}">
+        <b>${escapeHtml(new Date(entry.ts).toLocaleString())}</b>
+        <div style="font-size:11px;color:var(--chalk-dim);margin-top:2px;">${escapeHtml((entry.lines[0]||'').slice(0,90))}${(entry.lines[0]||'').length>90?'…':''}</div>
+      </div>
+    `).join('') : '<p style="font-size:13px;color:#7a756d;">Nothing saved yet for this tier.</p>';
+    bodyEl.querySelectorAll('[data-hist-idx]').forEach(item=>{
+      item.onclick = ()=> showDetail(list[Number(item.dataset.histIdx)]);
+    });
+  }
+  function showDetail(entry){
+    bodyEl.innerHTML = `
+      <button class="btn ghost-dark small" id="vibeHistBack" style="margin-bottom:8px;">← back to list</button>
+      <p style="font-family:var(--font-mono);font-size:10px;color:var(--chalk-dim);">${escapeHtml(new Date(entry.ts).toLocaleString())}</p>
+      <div class="ai-response">${entry.lines.map(l=>escapeHtml(l)).join('</div><div class="ai-response" style="margin-top:8px;">')}</div>
+      ${entry.recs && entry.recs.length ? `<div style="margin-top:10px;">${entry.recs.map((rec,idx)=>vibeRecRowHtml(entry,rec,idx)).join('')}</div>` : ''}
+    `;
+    bodyEl.querySelector('#vibeHistBack').onclick = showList;
+    wireVibeRecButtons(bodyEl, ()=> showDetail(entry));
+  }
+  showList();
+  back.querySelector('#vibeHistClose').onclick = ()=>{
+    back.remove();
+    renderVibeResultBox(); // in case acting on a rec in here changed something the main box should reflect
+  };
 }
 
 async function runLiveComputerFriend(){
@@ -2500,30 +2770,39 @@ async function runLiveComputerFriend(){
 
   // same math as the local quick-check, just packaged up to hand to Claude
   // instead of being turned into hardcoded sentences here.
+  const duoMap = getRecognizedDuos(loggedShows);
+  const baseline = getGlobalCollabBaseline(loggedShows);
   const collabMap = {};
   loggedShows.forEach(s=>{
     const st = getState(s.id);
     const ratings = st.experiences.map(e=>e.rating).filter(r=>r!==null && r!==undefined);
     const boughtInCount = st.experiences.filter(e=>e.verdict==='boughtIn' || e.verdict==='allIn').length;
     const total = st.experiences.length;
-    s.team.forEach(person=>{
-      if(person==='various' || person==='various artists') return;
-      if(!collabMap[person]) collabMap[person] = {ratings:[], boughtIn:0, total:0, shows:new Set()};
-      collabMap[person].ratings.push(...ratings);
-      collabMap[person].boughtIn += boughtInCount;
-      collabMap[person].total += total;
-      collabMap[person].shows.add(s.title);
+    creditUnitsForShow(s.team, duoMap).forEach(unit=>{
+      const key = unit.displayName;
+      if(!collabMap[key]) collabMap[key] = {names:unit.names, ratings:[], boughtIn:0, total:0, shows:new Set()};
+      collabMap[key].ratings.push(...ratings);
+      collabMap[key].boughtIn += boughtInCount;
+      collabMap[key].total += total;
+      collabMap[key].shows.add(s.title);
     });
   });
   const collabStats = Object.entries(collabMap)
-    .filter(([_,v])=>v.shows.size>=2 && (v.boughtIn/v.total)>=0.5) // need 2+ DIFFERENT shows AND a real bought-in rate (≥50%) — same floor the stat card and local Quick Check now apply
-    .map(([name,v])=>({
-      name,
-      avg: v.ratings.length ? +(v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length).toFixed(2) : null,
-      boughtInRate: +(v.boughtIn / v.total).toFixed(2),
-      showCount: v.shows.size,
-      showTitles: [...v.shows],
-    }))
+    .map(([name,v])=>{
+      const rawAvg = v.ratings.length ? v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length : null;
+      const boughtInRate = +shrinkToward(v.boughtIn, v.total, baseline.meanRate, SHRINK_K).toFixed(2);
+      const avg = (rawAvg!=null && baseline.meanRating!=null) ? +shrinkToward(v.ratings.reduce((a,b)=>a+b,0), v.ratings.length, baseline.meanRating, SHRINK_K).toFixed(2) : rawAvg;
+      return {
+        name,
+        names: v.names,
+        avg,
+        boughtInRate,
+        showCount: v.shows.size,
+        showTitles: [...v.shows],
+      };
+    })
+    // need 2+ DIFFERENT shows AND a real (shrinkage-adjusted) bought-in rate ≥50%
+    .filter(c=>c.showCount>=2 && c.boughtInRate>=0.5)
     .sort((a,b)=> b.boughtInRate - a.boughtInRate || (b.avg||0)-(a.avg||0));
 
   const stuckTitles = [];
@@ -2563,6 +2842,12 @@ async function runLiveComputerFriend(){
     const reason = getState(s.id).dontcareReason;
     return reason ? `${s.title} (reason: ${reason})` : s.title;
   });
+  // BUG FIX (2026-06-27): no-opinion (skipped) shows had no exclusion path at
+  // all in the live tier — Quick Check already protects against this via its
+  // touchedIds check, but the live tier only ever told the model to avoid
+  // don't-care and already-logged titles, leaving skipped shows fully
+  // recommendable if the model happened to know the title on its own.
+  const noopinionTitles = Object.values(allShows()).filter(s=>getState(s.id).status==='noopinion').map(s=>s.title);
   const loggedTitles = loggedShows.map(s=>s.title);
   const anchors = DATA.anchors.map(a=>a.name);
 
@@ -2572,8 +2857,10 @@ Rules:
 - A full per-show breakdown — title, format, rating, verdict — is provided below for every logged experience. You may ONLY cite a specific rating or verdict if it appears literally in that breakdown. Never infer, estimate, or guess a number for any show — including ones also mentioned elsewhere in this data, like a collaborator credit or a flag — those summaries are derived from the same breakdown and aren't a substitute for checking it directly. If you want to compare two shows, look up both in the breakdown before claiming which got the stronger reaction.
 - Treat a show sitting in the "fine" (3/5) band across two or more different formats as a real signal of quiet dislike, not neutrality — name it directly if one is given to you.
 - Treat a show logged 3+ times with nothing rated below a 4 as a real, strong favorite in its own right — even if its creative team doesn't otherwise appear among the top collaborators. A one- or two-show creative team can legitimately never clear the collaborator-level bar, so don't undersell this signal just because it's tied to a single title.
+- The collaborator percentages and averages below are already adjusted for small sample size (a thin track record is pulled toward the user's overall average) — cite them as given, don't second-guess or re-derive them.
 - Never recommend anything on the "don't care" list provided below.
 - Where a don't-care entry includes a stated reason, use it to reason about whether a new recommendation risks the same objection (e.g. premise-level, creator-level, genre-level) — but the reason is never grounds to recommend the don't-care show itself.
+- Never recommend anything on the "skipped" list provided below — these are shows the user has no knowledge of or opinion on at all, not a verdict, but still off-limits to suggest back to them.
 - Never recommend anything on the "already logged" list provided below.
 - You MAY and SHOULD recommend musicals beyond anything mentioned in the data, drawing on your own general knowledge — that's the whole point of this live version versus a static lookup. Specifically look for genuine cross-medium connections to the "non-theater anchors" listed below (a TV writer, a band, etc. that explains taste better than a genre tag would) — real reasoning about why, not a coincidence of shared words.
 - Musicals only — never recommend a straight play.
@@ -2595,6 +2882,8 @@ Shows stuck in the "fine" band across 2+ formats: ${stuckTitles.length ? stuckTi
 Already logged, do not recommend: ${loggedTitles.join(', ') || '(none)'}
 
 Don't-care list, never recommend: ${dontcareEntries.join(', ') || '(none)'}
+
+Skipped (no opinion) list, never recommend: ${noopinionTitles.join(', ') || '(none)'}
 
 Non-theater anchors, use for cross-medium reasoning if relevant: ${anchors.join(', ') || '(none logged)'}
 

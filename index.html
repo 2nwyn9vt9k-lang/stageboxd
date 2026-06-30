@@ -90,13 +90,15 @@
     left:0; right:0; bottom:0;
     z-index:30;
     display:flex;
-    justify-content:center;
+    justify-content:space-between;
+    align-items:center;
     gap:8px;
     flex-wrap:wrap;
     background:var(--panel);
     border-top:1px solid var(--panel-line);
     padding:10px 16px calc(10px + env(safe-area-inset-bottom));
   }
+  .bottom-actions-group{ display:flex; gap:8px; }
   .bottom-actions button{
     background:none;
     border:1px solid var(--panel-line);
@@ -320,6 +322,7 @@
     z-index:19;
     display:flex;
     flex-wrap:wrap;
+    justify-content:space-between;
     gap:6px;
     background:var(--panel);
     padding:8px 0;
@@ -559,10 +562,12 @@
 </main>
 
 <div class="bottom-actions">
-  <button id="exportBtn">EXPORT</button>
-  <button id="importBtn">IMPORT</button>
+  <div class="bottom-actions-group">
+    <button id="exportBtn">EXPORT</button>
+    <button id="importBtn">IMPORT</button>
+  </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-30c</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-30d</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1966,22 +1971,25 @@ function renderLibList(){
   });
 }
 
-// A-Z jump bar (build 2026-06-30c): 8 letter-groups rather than all 26
-// letters, since 26 individual tap targets on a phone-width screen is a
-// real precision problem — grouping keeps it one-tap and always visible
-// without that. Each group jumps to the first show (in the CURRENT
-// filtered/sorted order passed in) whose librarySortKey starts with a
-// letter in that group's range; a group with no match in the current view
-// renders disabled/greyed rather than doing nothing silently on tap.
+// A-Z jump bar (build 2026-06-30c, regrouped to 7 on 2026-06-30): 7 letter-
+// groups rather than all 26 letters, since 26 individual tap targets on a
+// phone-width screen is a real precision problem — grouping keeps it
+// one-tap and always visible without that. Originally 8 groups, dropped to
+// 7 since 8 buttons at this width naturally wraps to a second row on a
+// phone screen, which looked broken; 7 fits on one row and the bar now
+// space-betweens them evenly instead of packing left. Each group jumps to
+// the first show (in the CURRENT filtered/sorted order passed in) whose
+// librarySortKey starts with a letter in that group's range; a group with
+// no match in the current view renders disabled/greyed rather than doing
+// nothing silently on tap.
 const LIB_JUMP_GROUPS = [
-  {label:'A–C', from:'a', to:'c'},
-  {label:'D–F', from:'d', to:'f'},
-  {label:'G–I', from:'g', to:'i'},
-  {label:'J–L', from:'j', to:'l'},
-  {label:'M–O', from:'m', to:'o'},
-  {label:'P–R', from:'p', to:'r'},
-  {label:'S–U', from:'s', to:'u'},
-  {label:'V–Z', from:'v', to:'z'},
+  {label:'A–D', from:'a', to:'d'},
+  {label:'E–H', from:'e', to:'h'},
+  {label:'I–L', from:'i', to:'l'},
+  {label:'M–P', from:'m', to:'p'},
+  {label:'Q–T', from:'q', to:'t'},
+  {label:'U–W', from:'u', to:'w'},
+  {label:'X–Z', from:'x', to:'z'},
 ];
 function renderLibJumpBar(sortedShows){
   const host = document.getElementById('libJumpBar');
@@ -2344,9 +2352,9 @@ function openEditCreditsModal(showId){
       behind a name. Cameron's call (2026-06-27): go with the automatic
       version rather than a manual floor-raise or a label-only flag.
    ============================================================ */
-const DUO_THRESHOLD = 2; // shared logged shows needed to count as a recurring pair
-const SHRINK_K = 4; // "virtual" average-ish experiences blended in for shrinkage — higher = stronger pull toward your overall average for thin samples, smaller effect once a name has real history
-const LIVE_REPEAT_WEIGHT = 2; // a Live experience flagged "seen multiple times" counts as this many toward collaborator math and the comeback-show floor, instead of the flat 1 every other experience counts as. Same starting-guess status as the two constants above — picked so the thinnest qualifying case (one recording listen + one doubled live revisit, effective sample size 3) stays just under SHRINK_K's 4-point shrinkage cutoff.
+const DUO_THRESHOLD = 2; // shared logged shows needed to count as a recurring pair — a floor underneath DUO_AFFINITY_THRESHOLD below, so two people whose only logged show together is the only show either of them has logged can't compute as 100% mutual affinity off one data point.
+const DUO_AFFINITY_THRESHOLD = 0.5; // (2026-06-30) a pair only auto-merges if their shared shows are a clear MAJORITY of BOTH people's own total logged shows, checked mutually — not just a raw share-count floor. Replaces SHRINK_K-based shrinkage as the small-sample-bias fix entirely (see WILSON_Z below for what replaced it on the ranking side). Picked, not derived, same starting-guess status as DUO_THRESHOLD — >50% means an exact 50/50 split between two partners never auto-merges either one.
+const LIVE_REPEAT_WEIGHT = 2; // a Live experience flagged "seen multiple times" counts as this many toward collaborator math and the comeback-show floor, instead of the flat 1 every other experience counts as. Same starting-guess status as the other constants here — picked, not derived.
 
 function pairKey(a,b){ return [a,b].sort().join('||'); }
 
@@ -2369,29 +2377,54 @@ function getDuoPairCounts(loggedShows){
   return pairShowSets;
 }
 
-// Finds every pair of names that's been credited together on 2+ of the
-// user's own logged shows. Returns a map: name -> their one recognized
-// partner (only set when BOTH sides agree on each other as their best/only
-// qualifying partner — if A's strongest pairing is B but B's strongest
-// pairing is someone else, neither merges; both stay solo rather than
-// showing a one-sided pairing).
-// Manual override (2026-06-28): raw co-occurrence count can't tell a real
-// recurring creative team from people who just happened to work together
-// twice — surfaced by a real case, Stephen Sondheim & Arthur Laurents, who
-// share 2 logged shows but aren't a duo by Cameron's own read. DATA.duoDenylist
-// holds pair-keys Cameron's manually rejected; a denied pair is skipped during
-// candidate selection below, so a name falls through to its next-best
-// qualifying partner (if any) instead of just going solo.
+// Distinct logged-show count per credited name — the denominator for
+// mutual-affinity duo detection below. How much of THIS person's own
+// catalog the shared shows actually represent, not just a raw pair count.
+function getShowCountsByName(loggedShows){
+  const counts = {};
+  loggedShows.forEach(s=>{
+    const team = s.team.filter(p=>p!=='various' && p!=='various artists');
+    new Set(team).forEach(name=>{ counts[name] = (counts[name]||0) + 1; });
+  });
+  return counts;
+}
+
+// Finds every pair of names that's a real recurring creative TEAM, not just
+// two people who've crossed paths a few times. Returns a map: name -> their
+// one recognized partner (only set when BOTH sides agree on each other as
+// their best/only qualifying partner — if A's strongest pairing is B but
+// B's strongest pairing is someone else, neither merges; both stay solo
+// rather than showing a one-sided pairing).
+// Mutual affinity (2026-06-30): replaces the old "any 2+ shared shows"
+// floor, which forced constant manual denylisting of real-but-prolific
+// people (Sondheim sharing exactly 2 shows each with Furth, Lapine, AND
+// Laurents — three separate false-positive "duos" off one person's normal
+// career breadth) rather than catching a single true team. A pair now only
+// qualifies if the shared shows are a clear MAJORITY of BOTH people's own
+// total logged catalogs (DUO_AFFINITY_THRESHOLD), checked independently in
+// each direction — Comden & Green or Rodgers & Hammerstein clear this
+// easily since that's nearly their whole logged output together; Sondheim
+// clears it with no one, since none of his individual partners account for
+// more than a fraction of his much broader catalog. DUO_THRESHOLD (2 shared
+// shows) still applies underneath as a floor, so a pair sharing their only
+// logged show each can't compute as 100% mutual affinity off one data
+// point. DATA.duoDenylist remains as a manual safety valve on top of all of
+// this for the rare case the math still gets a specific pair wrong.
 function getRecognizedDuos(loggedShows){
   const pairShowSets = getDuoPairCounts(loggedShows);
+  const showCounts = getShowCountsByName(loggedShows);
   const denylist = new Set(DATA.duoDenylist || []);
   const candidatesByName = {};
   Object.entries(pairShowSets).forEach(([key, titles])=>{
-    if(titles.size < DUO_THRESHOLD) return;
+    const shared = titles.size;
+    if(shared < DUO_THRESHOLD) return;
     const [a,b] = key.split('||');
+    const affinityA = shared / (showCounts[a] || shared);
+    const affinityB = shared / (showCounts[b] || shared);
+    if(affinityA <= DUO_AFFINITY_THRESHOLD || affinityB <= DUO_AFFINITY_THRESHOLD) return;
     [[a,b],[b,a]].forEach(([self,partner])=>{
       if(!candidatesByName[self]) candidatesByName[self] = [];
-      candidatesByName[self].push({partner, count:titles.size});
+      candidatesByName[self].push({partner, count:shared});
     });
   });
   const duoMap = {};
@@ -2518,11 +2551,33 @@ function rolesTextForShow(names, show){
   return ` (${labeled.map(l=>`${l.name}: ${l.label}`).join(', ')})`;
 }
 
-// Pulls a raw sum/count toward priorMean the thinner the sample (n) is —
-// see SHRINK_K above. Degrades gracefully to priorMean itself at n=0.
-function shrinkToward(sum, n, priorMean, k){
-  if(n<=0) return priorMean;
-  return (sum + k*priorMean) / (n + k);
+// Confidence-bound ranking (2026-06-30): replaces shrinkage as the
+// collaborator leaderboard's SORT key. Shrinkage only ever asked "is this
+// rate trustworthy" by pulling a thin sample toward the user's overall
+// average — useful for not overstating a lucky small sample, but it never
+// gave credit for a LARGE sample's accumulated evidence, which is what let
+// a 2-show creator with one mixed result get pulled UPWARD toward a high
+// overall average and outrank a real 7-show track record on a rate-only
+// sort. The Wilson lower bound asks a different question: not "what's the
+// percentage," but "how low could the true rate plausibly be, given how
+// much evidence backs it." More evidence narrows that range and lets a
+// good-but-not-perfect rate rank where it should; a thin sample's wide
+// range keeps it from punching above its weight even if the raw number
+// looks shiny — same goal shrinkage had, plus the volume credit it never
+// had. WILSON_Z=1.96 (95% confidence) is a reasonable starting pick, not a
+// derived value — same status as DUO_THRESHOLD/DUO_AFFINITY_THRESHOLD,
+// revisit if a ranking ever looks visibly wrong in practice. This score is
+// the SORT key only — the card displays plain literal counts (see
+// renderVibe), not this number, so nothing on screen requires explaining it.
+const WILSON_Z = 1.96;
+function wilsonLowerBound(positive, total){
+  if(total<=0) return 0;
+  const p = positive/total;
+  const z2 = WILSON_Z*WILSON_Z;
+  const denom = 1 + z2/total;
+  const center = p + z2/(2*total);
+  const margin = WILSON_Z * Math.sqrt((p*(1-p) + z2/(4*total))/total);
+  return (center - margin) / denom;
 }
 
 // Repeat-viewing (2026-06-28h): a Live experience flagged "seen multiple
@@ -2536,9 +2591,8 @@ function expWeight(e){
 
 // Shared weighted accumulator for a show's experience list — used at every
 // collaborator-math accumulation point (the stat card, Quick Check, live
-// Computer Friend) plus getComebackShows() and the global baseline below, so
-// LIVE_REPEAT_WEIGHT only has to be applied in one place instead of
-// copy-pasted across four call sites.
+// Computer Friend) plus getComebackShows(), so LIVE_REPEAT_WEIGHT only has
+// to be applied in one place instead of copy-pasted across call sites.
 function weightedExpStats(experiences){
   let ratingSum=0, ratingWeight=0, boughtInWeight=0, totalWeight=0;
   experiences.forEach(e=>{
@@ -2548,28 +2602,6 @@ function weightedExpStats(experiences){
     if(e.rating!=null){ ratingSum += e.rating*w; ratingWeight += w; }
   });
   return {ratingSum, ratingWeight, boughtInWeight, totalWeight};
-}
-
-// The "your overall average, full stop" numbers shrinkage pulls toward —
-// computed once across every logged experience, not just ones from
-// collaborators who already clear the 2-show floor (that would be circular).
-// Weighted the same way as everything it's blended into (2026-06-28h) — a
-// repeat-flagged Live entry counting double in a collaborator's own numbers
-// but only single in the target those numbers shrink toward would be an
-// inconsistency, not a deliberate choice.
-function getGlobalCollabBaseline(loggedShows){
-  let totalWeight=0, totalBoughtInWeight=0, ratingSum=0, ratingWeight=0;
-  loggedShows.forEach(s=>{
-    const w = weightedExpStats(getState(s.id).experiences);
-    totalWeight += w.totalWeight;
-    totalBoughtInWeight += w.boughtInWeight;
-    ratingSum += w.ratingSum;
-    ratingWeight += w.ratingWeight;
-  });
-  return {
-    meanRate: totalWeight>0 ? totalBoughtInWeight/totalWeight : 0.5,
-    meanRating: ratingWeight>0 ? ratingSum/ratingWeight : null,
-  };
 }
 
 function getComebackShows(loggedShows){
@@ -2596,11 +2628,11 @@ function renderVibe(){
   const el = document.getElementById('tab-vibe');
   const loggedShows = Object.values(allShows()).filter(s=>getState(s.id).experiences.length>0);
 
-  // collaborator stats — duo-merged credit units, shrunk toward the user's
-  // own overall numbers the thinner a name's sample is (see the shared
-  // helpers above for both mechanisms).
+  // collaborator stats — duo-merged credit units (mutual-affinity teams
+  // only, see getRecognizedDuos), ranked by confidence-bound score (see
+  // wilsonLowerBound above) rather than a shrunk rate. The card displays
+  // plain literal counts; the ranking math stays invisible on purpose.
   const duoMap = getRecognizedDuos(loggedShows);
-  const baseline = getGlobalCollabBaseline(loggedShows);
   const collabMap = {};
   loggedShows.forEach(s=>{
     const st = getState(s.id);
@@ -2629,19 +2661,19 @@ function renderVibe(){
   });
   const collabStats = Object.entries(collabMap)
     .map(([name,v])=>{
-      const rawAvg = v.ratingWeight ? (v.ratingSum/v.ratingWeight) : null;
-      const rawBoughtInRate = v.boughtIn / v.total;
-      const boughtInRate = shrinkToward(v.boughtIn, v.total, baseline.meanRate, SHRINK_K);
-      const avg = (rawAvg!=null && baseline.meanRating!=null) ? shrinkToward(v.ratingSum, v.ratingWeight, baseline.meanRating, SHRINK_K) : rawAvg;
+      const avg = v.ratingWeight ? (v.ratingSum/v.ratingWeight) : null;
+      const boughtInRate = v.total ? (v.boughtIn/v.total) : 0;
+      const boughtInCount = Math.round(v.boughtIn);
+      const totalCount = Math.round(v.total);
+      const confidence = wilsonLowerBound(v.boughtIn, v.total);
       const showBreakdown = Object.entries(v.breakdown).map(([showId,b])=>({showId, title:b.title, experiences:b.experiences}));
-      return {name, names:v.names, avg, rawAvg, boughtInRate, rawBoughtInRate, showCount: v.shows.size, showTitles: [...v.shows], showBreakdown};
+      return {name, names:v.names, avg, boughtInRate, boughtInCount, totalCount, confidence, showCount: v.shows.size, showTitles: [...v.shows], showBreakdown};
     })
-    // need 2+ DIFFERENT shows AND a real (shrinkage-adjusted) bought-in rate
-    // of ≥50% — the floor itself now checks the adjusted number, not the raw
-    // one, so a thin sample that only "looks" 50%+ on raw numbers alone can
-    // fail to qualify. Same floor runLocalVibeCheck()/runLiveComputerFriend() apply.
+    // need 2+ DIFFERENT shows AND a real bought-in rate of ≥50% — a plain,
+    // checkable floor on the literal numbers. Ranking among everyone who
+    // clears it is handled separately, below, by the confidence score.
     .filter(c=>c.showCount>=2 && c.boughtInRate>=0.5)
-    .sort((a,b)=> b.boughtInRate - a.boughtInRate || (b.avg||0)-(a.avg||0))
+    .sort((a,b)=> b.confidence - a.confidence)
     .slice(0,8);
 
   const comebackShows = getComebackShows(loggedShows);
@@ -2671,7 +2703,7 @@ function renderVibe(){
       '<button class="btn ghost-dark small" id="manageDuoPairsBtn" style="margin-bottom:6px;">review detected pairs</button>',
       collabStats.length ? collabStats.map((c,i)=>`
         <div class="collab-row"><span><button class="collab-name-btn" data-collab-idx="${i}">${escapeHtml(c.name)}</button> <span style="color:var(--chalk-dim)">(${c.showCount} show${c.showCount===1?'':'s'})</span></span>
-        <span>${c.avg?c.avg.toFixed(1)+'/5 avg · ':''}${Math.round(c.boughtInRate*100)}% loved or bought in</span></div>
+        <span>${c.boughtInCount} of ${c.totalCount} experiences bought-in or All In${c.avg?' · '+c.avg.toFixed(1)+'/5 avg':''}</span></div>
       `).join('') : '<p style="font-family:var(--font-mono);font-size:12px;color:var(--chalk-dim);">Log a few experiences and this fills in.</p>'
     )}
 
@@ -2684,7 +2716,7 @@ function renderVibe(){
     ${statCardHtml('stuck', 'Stuck-at-fine flags',
       '<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">Sitting flat in the "fine" band (2.5–3.5 avg, never swinging more than a point) across 2+ different formats — usually a quieter, more reliable sign of dislike than one bad rating, not actual neutrality.</p>',
       '',
-      stuckFlags.length ? stuckFlags.map(f=>`<div class="flag-row"><b>${escapeHtml(f.title)}</b> — ${f.formats} formats logged, avg ${f.avg.toFixed(1)}/5.</div>`).join('') : '<p style="font-family:var(--font-mono);font-size:12px;color:var(--chalk-dim);">No "fine across every format" patterns yet. (You know which show eventually triggers this one.)</p>'
+      stuckFlags.length ? stuckFlags.map(f=>`<div class="collab-row"><span><b>${escapeHtml(f.title)}</b></span><span>${f.formats} formats logged · avg ${f.avg.toFixed(1)}/5</span></div>`).join('') : '<p style="font-family:var(--font-mono);font-size:12px;color:var(--chalk-dim);">No "fine across every format" patterns yet. (You know which show eventually triggers this one.)</p>'
     )}
 
     ${statCardHtml('anchors', 'Non-theater anchors',
@@ -2792,8 +2824,8 @@ function openCollabShowsModal(c){
   back.innerHTML = `
     <div class="modal">
       <h2 class="section-title" style="color:var(--ink)">${escapeHtml(c.name)}</h2>
-      <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">${c.showCount} show${c.showCount===1?'':'s'} behind this stat · ${Math.round(c.boughtInRate*100)}% loved or bought in${c.avg?' · '+c.avg.toFixed(1)+'/5 avg':''} <span style="color:var(--chalk-dim);">(adjusted for sample size)</span></p>
-      <p style="font-family:var(--font-mono);font-size:10px;color:var(--chalk-dim);margin-top:-4px;">Raw, unadjusted: ${Math.round(c.rawBoughtInRate*100)}% bought-in${c.rawAvg!=null?', '+c.rawAvg.toFixed(1)+'/5 avg':''}. The avg/percentage above are computed per logged experience, not per show — a show logged more than once (e.g. listened AND watched) contributes more than one data point below.</p>
+      <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">${c.showCount} show${c.showCount===1?'':'s'} behind this stat · ${c.boughtInCount} of ${c.totalCount} experiences bought-in or All In${c.avg?' · '+c.avg.toFixed(1)+'/5 avg':''}</p>
+      <p style="font-family:var(--font-mono);font-size:10px;color:var(--chalk-dim);margin-top:-4px;">Counted per logged experience, not per show — a show logged more than once (e.g. listened AND watched) contributes more than one data point below.</p>
       <div>${breakdownHtml}</div>
       <div class="btnrow"><button class="btn small" id="collabModalClose">Close</button></div>
     </div>
@@ -2821,7 +2853,7 @@ function openDuoManagementModal(loggedShows){
   back.innerHTML = `
     <div class="modal">
       <h2 class="section-title" style="color:var(--ink)">Review detected pairs</h2>
-      <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">Pairs co-credited on 2+ of your logged shows. Raw show-count can't tell a real recurring creative team from people who just happened to cross paths twice — mark one "not actually a duo" to keep both names credited solo from now on; the change is permanent until you reverse it here.</p>
+      <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">Recurring pairs are detected automatically now — a pairing only forms if the shared shows are a clear majority of BOTH people's own catalogs, so most one-off overlaps never show up here at all. This list is the manual safety valve for when the math still gets a specific pair wrong: anyone currently merged, plus anyone you've previously forced solo. Mark one "not actually a duo" to keep both names credited solo regardless of the math; the change is permanent until you reverse it here.</p>
       <div>${rowsHtml}</div>
       <div class="btnrow"><button class="btn small" id="duoManageModalClose">Close</button></div>
     </div>
@@ -2868,7 +2900,6 @@ function runLocalVibeCheck(){
   // ---- collaborator stats, same rule as the card above, recomputed here
   // so this function can stand alone ----
   const duoMap = getRecognizedDuos(loggedShows);
-  const baseline = getGlobalCollabBaseline(loggedShows);
   const collabMap = {};
   loggedShows.forEach(s=>{
     const st = getState(s.id);
@@ -2885,21 +2916,23 @@ function runLocalVibeCheck(){
   });
   const collabStats = Object.entries(collabMap)
     .map(([name,v])=>{
-      const rawAvg = v.ratingWeight ? v.ratingSum/v.ratingWeight : null;
-      const boughtInRate = shrinkToward(v.boughtIn, v.total, baseline.meanRate, SHRINK_K);
-      const avg = (rawAvg!=null && baseline.meanRating!=null) ? shrinkToward(v.ratingSum, v.ratingWeight, baseline.meanRating, SHRINK_K) : rawAvg;
+      const avg = v.ratingWeight ? v.ratingSum/v.ratingWeight : null;
+      const boughtInRate = v.total ? v.boughtIn/v.total : 0;
       return {
         name,
         names: v.names,
         avg,
         boughtInRate,
+        boughtInCount: Math.round(v.boughtIn),
+        totalCount: Math.round(v.total),
+        confidence: wilsonLowerBound(v.boughtIn, v.total),
         showCount: v.shows.size,
         showTitles: [...v.shows],
       };
     })
-    // need 2+ DIFFERENT shows AND a real (shrinkage-adjusted) bought-in rate ≥50%
+    // need 2+ DIFFERENT shows AND a real bought-in rate ≥50%
     .filter(c=>c.showCount>=2 && c.boughtInRate>=0.5)
-    .sort((a,b)=> b.boughtInRate - a.boughtInRate || (b.avg||0)-(a.avg||0));
+    .sort((a,b)=> b.confidence - a.confidence);
 
   // ---- stuck-at-fine, same rule as the flag card ----
   const stuckTitles = [];
@@ -2948,7 +2981,7 @@ function runLocalVibeCheck(){
   if(collabStats.length){
     const top = collabStats[0];
     const titles = top.showTitles.slice(0,3).join(', ') + (top.showTitles.length>3 ? ', …' : '');
-    lines.push(`You buy into ${top.name} more than almost anyone else logged here — ${Math.round(top.boughtInRate*100)}% loved-or-bought-in across ${top.showCount} show${top.showCount===1?'':'s'} (${titles}).`);
+    lines.push(`You buy into ${top.name} more than almost anyone else logged here — ${top.boughtInCount} of ${top.totalCount} experiences bought-in or better across ${top.showCount} show${top.showCount===1?'':'s'} (${titles}).`);
   } else {
     lines.push(`No repeat collaborator shows up enough yet to call a real pattern — most names here only have one logged credit. Give it more shows before trusting this card.`);
   }
@@ -3216,7 +3249,6 @@ async function runLiveComputerFriend(){
   // same math as the local quick-check, just packaged up to hand to Claude
   // instead of being turned into hardcoded sentences here.
   const duoMap = getRecognizedDuos(loggedShows);
-  const baseline = getGlobalCollabBaseline(loggedShows);
   const collabMap = {};
   loggedShows.forEach(s=>{
     const st = getState(s.id);
@@ -3233,21 +3265,23 @@ async function runLiveComputerFriend(){
   });
   const collabStats = Object.entries(collabMap)
     .map(([name,v])=>{
-      const rawAvg = v.ratingWeight ? v.ratingSum/v.ratingWeight : null;
-      const boughtInRate = +shrinkToward(v.boughtIn, v.total, baseline.meanRate, SHRINK_K).toFixed(2);
-      const avg = (rawAvg!=null && baseline.meanRating!=null) ? +shrinkToward(v.ratingSum, v.ratingWeight, baseline.meanRating, SHRINK_K).toFixed(2) : rawAvg;
+      const avg = v.ratingWeight ? +(v.ratingSum/v.ratingWeight).toFixed(2) : null;
+      const boughtInRate = v.total ? +(v.boughtIn/v.total).toFixed(2) : 0;
       return {
         name,
         names: v.names,
         avg,
         boughtInRate,
+        boughtInCount: Math.round(v.boughtIn),
+        totalCount: Math.round(v.total),
+        confidence: wilsonLowerBound(v.boughtIn, v.total),
         showCount: v.shows.size,
         showTitles: [...v.shows],
       };
     })
-    // need 2+ DIFFERENT shows AND a real (shrinkage-adjusted) bought-in rate ≥50%
+    // need 2+ DIFFERENT shows AND a real bought-in rate ≥50%
     .filter(c=>c.showCount>=2 && c.boughtInRate>=0.5)
-    .sort((a,b)=> b.boughtInRate - a.boughtInRate || (b.avg||0)-(a.avg||0));
+    .sort((a,b)=> b.confidence - a.confidence);
 
   const stuckTitles = [];
   loggedShows.forEach(s=>{
@@ -3302,7 +3336,7 @@ Rules:
 - A full per-show breakdown — title, format, rating, verdict — is provided below for every logged experience. You may ONLY cite a specific rating or verdict if it appears literally in that breakdown. Never infer, estimate, or guess a number for any show — including ones also mentioned elsewhere in this data, like a collaborator credit or a flag — those summaries are derived from the same breakdown and aren't a substitute for checking it directly. If you want to compare two shows, look up both in the breakdown before claiming which got the stronger reaction.
 - Treat a show sitting in the "fine" (3/5) band across two or more different formats as a real signal of quiet dislike, not neutrality — name it directly if one is given to you.
 - Treat a show logged 3+ times with nothing rated below a 4 as a real, strong favorite in its own right — even if its creative team doesn't otherwise appear among the top collaborators. A one- or two-show creative team can legitimately never clear the collaborator-level bar, so don't undersell this signal just because it's tied to a single title.
-- The collaborator percentages and averages below are already adjusted for small sample size (a thin track record is pulled toward the user's overall average) — cite them as given, don't second-guess or re-derive them.
+- The collaborator list below is already filtered to people with a real, qualifying track record and ranked by how well-supported that track record is, not just by raw percentage — a name with fewer logged shows needed a cleaner record to make this list at all. Cite the literal counts and percentage given, don't second-guess or re-derive them.
 - A Live experience marked "seen live more than once" in the breakdown below counts as 2 toward the collaborator and comeback-show totals, not 1 — that's intentional weighting, not a discrepancy to flag if the totals don't match a literal count of breakdown lines.
 - Never recommend anything on the "don't care" list provided below.
 - Where a don't-care entry includes a stated reason, use it to reason about whether a new recommendation risks the same objection (e.g. premise-level, creator-level, genre-level) — but the reason is never grounds to recommend the don't-care show itself.
@@ -3317,8 +3351,8 @@ List 1-3 entries in "recommendations" — the same shows you're recommending in 
   const userText = `Full per-show breakdown — the ONLY source you may cite a specific rating or verdict from:
 ${showBreakdown.join('\n')}
 
-Collaborators with 2+ different shows logged AND a ≥50% bought-in rate, ranked by bought-in rate:
-${collabStats.length ? collabStats.map(c=>`- ${c.name}: ${Math.round(c.boughtInRate*100)}% bought-in, avg rating ${c.avg ?? 'n/a'}, across ${c.showCount} show(s): ${c.showTitles.join(', ')}`).join('\n') : '(none yet — no repeat collaborators logged)'}
+Collaborators with 2+ different shows logged AND a ≥50% bought-in rate, ranked by how well-supported that track record is:
+${collabStats.length ? collabStats.map(c=>`- ${c.name}: ${c.boughtInCount} of ${c.totalCount} experiences bought-in or better, avg rating ${c.avg ?? 'n/a'}, across ${c.showCount} show(s): ${c.showTitles.join(', ')}`).join('\n') : '(none yet — no repeat collaborators logged)'}
 
 Shows logged 3+ times with nothing rated below a 4 — a real personal favorite even when its creative team never wrote a second show worth flagging above: ${comebackShows.length ? comebackShows.map(c=>`${c.title} (avg ${c.avg.toFixed(2)}, ${c.count} experiences)`).join(', ') : '(none yet)'}
 

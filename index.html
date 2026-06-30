@@ -475,7 +475,7 @@
   .collab-row{ display:flex; flex-direction:column; gap:2px; font-family:var(--font-mono); font-size:12px; padding:4px 0; border-bottom:1px solid var(--panel-line); }
   .collab-row > span:last-child{ text-align:right; }
   .collab-row:last-child{ border-bottom:none; }
-  .collab-name-btn{ background:none; border:none; padding:0; margin:0; font:inherit; color:var(--chalk); text-decoration:underline; text-decoration-color:var(--panel-line); cursor:pointer; }
+  .collab-name-btn{ background:none; border:none; padding:0; margin:0; font:inherit; color:var(--paper); text-decoration:underline; text-decoration-color:var(--panel-line); cursor:pointer; }
   .collab-name-btn:hover{ color:var(--amber); text-decoration-color:var(--amber); }
   .collab-row b{ color:var(--amber); }
   /* Inline duo-split control (2026-06-30, replaces the "review detected
@@ -574,7 +574,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-30e</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-30f</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -2686,7 +2686,7 @@ function renderVibe(){
     <p class="section-sub">what the ledger says about your actual taste, not the popular consensus</p>
 
     ${statCardHtml('collab', 'Creative collaborators you keep buying into',
-      '<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">Composers, lyricists, and book writers you actually keep buying into — not just people you\'ve crossed paths with a lot. Click a name for the real story behind the number.</p>',
+      '<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">Composers, lyricists, and book writers you actually keep buying into — not just people you\'ve crossed paths with a lot.</p>',
       '',
       collabStats.length ? collabStats.map((c,i)=>`
         <div class="collab-row"><span><button class="collab-name-btn" data-collab-idx="${i}">${escapeHtml(c.name)}</button> <span style="color:var(--chalk-dim)">(${c.showCount} show${c.showCount===1?'':'s'})</span>${c.names.length===2?`<button class="duo-split-btn" data-duo-split="${i}">not a duo</button>`:''}</span>
@@ -2957,7 +2957,12 @@ function runLocalVibeCheck(){
     lines.push(`${topComeback.title} is a show you keep returning to and rating high every time (${topComeback.count} logged experiences, avg ${topComeback.avg.toFixed(1)}/5, none below a 4) — a real favorite the collaborator stat above can't catch if its creative team never wrote a second show you've logged.`);
   }
   if(stuckTitles.length){
-    lines.push(`${stuckTitles.join(' and ')} ${stuckTitles.length===1?'is':'are'} sitting flat in the "fine" band across multiple formats. By the rule this app runs on, that's quiet dislike, not neutrality — it shouldn't keep getting credit for a so-so number.`);
+    const stuckSample = stuckTitles.slice(0,3);
+    const stuckText = stuckSample.length===1 ? stuckSample[0]
+      : stuckSample.length===2 ? stuckSample.join(' and ')
+      : stuckSample.slice(0,-1).join(', ') + ', and ' + stuckSample[stuckSample.length-1];
+    const stuckMore = stuckTitles.length>3 ? ` (and ${stuckTitles.length-3} more)` : '';
+    lines.push(`${stuckText}${stuckMore} ${stuckTitles.length===1?'is':'are'} sitting flat in the "fine" band across multiple formats. By the rule this app runs on, that's quiet dislike, not neutrality — it shouldn't keep getting credit for a so-so number.`);
   }
   if(recs.length){
     lines.push(`Worth a look, going strictly off your own data: ${recs.map(r=>`${r.title} (${r.because} again)`).join('; ')}.`);

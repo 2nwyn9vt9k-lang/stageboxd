@@ -524,7 +524,7 @@
   <button id="exportBtn">EXPORT</button>
   <button id="importBtn">IMPORT</button>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-28e</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-28h</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1320,6 +1320,9 @@ function subfieldsHtml(formId, capKey, prefill){
       <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-family:var(--font-body);font-size:14px;color:var(--ink);">
         <input type="checkbox" class="f-performed" style="width:auto;" ${prefill && prefill.performedIn ? 'checked' : ''}> I performed in this one
       </label>
+      <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-family:var(--font-body);font-size:14px;color:var(--ink);margin-top:6px;">
+        <input type="checkbox" class="f-repeat-live" style="width:auto;" ${prefill && prefill.repeatLive ? 'checked' : ''}> I've seen this live more than once
+      </label>
     </div>` : ''}
     ${showsSubLabel ? `
     <div class="field">
@@ -1424,10 +1427,12 @@ function wireExperienceForm(showId, isNew, onDone, prefill, containerEl){
       if(!selectedCap){ alert('Pick a capacity first — how did you experience this one?'); return; }
       const sublabelEl = subEl.querySelector('.f-sublabel');
       const performedEl = subEl.querySelector('.f-performed');
+      const repeatLiveEl = subEl.querySelector('.f-repeat-live');
       const exp = {
         capacity: selectedCap,
         subLabel: sublabelEl ? sublabelEl.value.trim() : '',
         performedIn: performedEl ? performedEl.checked : false,
+        repeatLive: repeatLiveEl ? repeatLiveEl.checked : false,
         venueTypes: Array.from(selectedVenues),
         location: subEl.querySelector('.f-location').value.trim(),
         dateNote: subEl.querySelector('.f-datenote').value.trim(),
@@ -1469,6 +1474,7 @@ function expEntryHtml(showId, e){
       </div>
       ${bits.length?`<div class="meta">${bits.join(' · ')}</div>`:''}
       ${e.performedIn?`<div class="meta">performed in this one</div>`:''}
+      ${e.repeatLive?`<div class="meta">seen live more than once</div>`:''}
       ${e.blurb?`<div class="blurb">"${escapeHtml(e.blurb)}"</div>`:''}
       ${e.moment?`<div class="meta">★ ${escapeHtml(e.moment)}</div>`:''}
       <div class="exp-entry-actions">
@@ -2226,6 +2232,7 @@ function openEditCreditsModal(showId){
    ============================================================ */
 const DUO_THRESHOLD = 2; // shared logged shows needed to count as a recurring pair
 const SHRINK_K = 4; // "virtual" average-ish experiences blended in for shrinkage — higher = stronger pull toward your overall average for thin samples, smaller effect once a name has real history
+const LIVE_REPEAT_WEIGHT = 2; // a Live experience flagged "seen multiple times" counts as this many toward collaborator math and the comeback-show floor, instead of the flat 1 every other experience counts as. Same starting-guess status as the two constants above — picked so the thinnest qualifying case (one recording listen + one doubled live revisit, effective sample size 3) stays just under SHRINK_K's 4-point shrinkage cutoff.
 
 function pairKey(a,b){ return [a,b].sort().join('||'); }
 
@@ -2404,21 +2411,50 @@ function shrinkToward(sum, n, priorMean, k){
   return (sum + k*priorMean) / (n + k);
 }
 
+// Repeat-viewing (2026-06-28h): a Live experience flagged "seen multiple
+// times" (repeatLive) counts as LIVE_REPEAT_WEIGHT toward collaborator math
+// and the comeback-show floor, instead of the flat 1 every other experience
+// counts as. Recording/movie/pro-shot repeats are untouched on purpose — see
+// Known Limitations for the cost/access reasoning that scoped this to Live.
+function expWeight(e){
+  return (e.capacity==='live' && e.repeatLive) ? LIVE_REPEAT_WEIGHT : 1;
+}
+
+// Shared weighted accumulator for a show's experience list — used at every
+// collaborator-math accumulation point (the stat card, Quick Check, live
+// Computer Friend) plus getComebackShows() and the global baseline below, so
+// LIVE_REPEAT_WEIGHT only has to be applied in one place instead of
+// copy-pasted across four call sites.
+function weightedExpStats(experiences){
+  let ratingSum=0, ratingWeight=0, boughtInWeight=0, totalWeight=0;
+  experiences.forEach(e=>{
+    const w = expWeight(e);
+    totalWeight += w;
+    if(e.verdict==='boughtIn' || e.verdict==='allIn') boughtInWeight += w;
+    if(e.rating!=null){ ratingSum += e.rating*w; ratingWeight += w; }
+  });
+  return {ratingSum, ratingWeight, boughtInWeight, totalWeight};
+}
+
 // The "your overall average, full stop" numbers shrinkage pulls toward —
 // computed once across every logged experience, not just ones from
 // collaborators who already clear the 2-show floor (that would be circular).
+// Weighted the same way as everything it's blended into (2026-06-28h) — a
+// repeat-flagged Live entry counting double in a collaborator's own numbers
+// but only single in the target those numbers shrink toward would be an
+// inconsistency, not a deliberate choice.
 function getGlobalCollabBaseline(loggedShows){
-  let totalExp=0, totalBoughtIn=0, ratingSum=0, ratingCount=0;
+  let totalWeight=0, totalBoughtInWeight=0, ratingSum=0, ratingWeight=0;
   loggedShows.forEach(s=>{
-    getState(s.id).experiences.forEach(e=>{
-      totalExp++;
-      if(e.verdict==='boughtIn' || e.verdict==='allIn') totalBoughtIn++;
-      if(e.rating!=null){ ratingSum+=e.rating; ratingCount++; }
-    });
+    const w = weightedExpStats(getState(s.id).experiences);
+    totalWeight += w.totalWeight;
+    totalBoughtInWeight += w.boughtInWeight;
+    ratingSum += w.ratingSum;
+    ratingWeight += w.ratingWeight;
   });
   return {
-    meanRate: totalExp>0 ? totalBoughtIn/totalExp : 0.5,
-    meanRating: ratingCount>0 ? ratingSum/ratingCount : null,
+    meanRate: totalWeight>0 ? totalBoughtInWeight/totalWeight : 0.5,
+    meanRating: ratingWeight>0 ? ratingSum/ratingWeight : null,
   };
 }
 
@@ -2426,11 +2462,19 @@ function getComebackShows(loggedShows){
   return loggedShows.map(s=>{
     const st = getState(s.id);
     const rated = st.experiences.filter(e=>e.rating!==null && e.rating!==undefined);
-    if(rated.length<3) return null;
+    if(!rated.length) return null;
     const ratings = rated.map(e=>e.rating);
     if(Math.min(...ratings)<4) return null;
-    const avg = ratings.reduce((a,b)=>a+b,0)/ratings.length;
-    return {title:s.title, count:rated.length, avg};
+    // Effective weighted count/average (2026-06-28h), not raw experience
+    // count — a repeat-flagged Live entry counts as LIVE_REPEAT_WEIGHT here
+    // too, via the shared weightedExpStats() helper. Every entry in `rated`
+    // already has a rating, so ratingWeight===totalWeight below. Confirmed
+    // and wanted: a single doubled entry alone (effective weight 2) still
+    // can't clear the 3+ floor on its own — see Known Limitations.
+    const w = weightedExpStats(rated);
+    if(w.totalWeight<3) return null;
+    const avg = w.ratingSum/w.ratingWeight;
+    return {title:s.title, count:w.totalWeight, avg};
   }).filter(Boolean).sort((a,b)=> b.avg-a.avg || b.count-a.count);
 }
 
@@ -2446,15 +2490,14 @@ function renderVibe(){
   const collabMap = {};
   loggedShows.forEach(s=>{
     const st = getState(s.id);
-    const ratings = st.experiences.map(e=>e.rating).filter(r=>r!==null && r!==undefined);
-    const boughtInCount = st.experiences.filter(e=>e.verdict==='boughtIn' || e.verdict==='allIn').length;
-    const total = st.experiences.length;
+    const wstats = weightedExpStats(st.experiences);
     creditUnitsForShow(s.team, duoMap).forEach(unit=>{
       const key = unit.displayName;
-      if(!collabMap[key]) collabMap[key] = {names:unit.names, ratings:[], boughtIn:0, total:0, shows:new Set(), breakdown:{}};
-      collabMap[key].ratings.push(...ratings);
-      collabMap[key].boughtIn += boughtInCount;
-      collabMap[key].total += total;
+      if(!collabMap[key]) collabMap[key] = {names:unit.names, ratingSum:0, ratingWeight:0, boughtIn:0, total:0, shows:new Set(), breakdown:{}};
+      collabMap[key].ratingSum += wstats.ratingSum;
+      collabMap[key].ratingWeight += wstats.ratingWeight;
+      collabMap[key].boughtIn += wstats.boughtInWeight;
+      collabMap[key].total += wstats.totalWeight;
       collabMap[key].shows.add(s.title);
       // Per-show experience list, for the audit popup. A show with 2+ logged
       // experiences (e.g. listened AND watched a bootleg) feeds 2+ data
@@ -2464,16 +2507,18 @@ function renderVibe(){
       // Laurents/Sondheim numbers confusing to audit by eye this session.
       // Keyed by show id (not just title) since build 2026-06-28f needs the
       // id to look up that show's per-name role tags for this same popup.
+      // `repeatLive` (build 2026-06-28h) lets the audit popup mark which
+      // entry is being counted twice, instead of the doubling being invisible.
       if(!collabMap[key].breakdown[s.id]) collabMap[key].breakdown[s.id] = {title:s.title, experiences:[]};
-      collabMap[key].breakdown[s.id].experiences.push(...st.experiences.map(e=>({rating:e.rating, verdict:e.verdict})));
+      collabMap[key].breakdown[s.id].experiences.push(...st.experiences.map(e=>({rating:e.rating, verdict:e.verdict, repeatLive: !!(e.capacity==='live' && e.repeatLive)})));
     });
   });
   const collabStats = Object.entries(collabMap)
     .map(([name,v])=>{
-      const rawAvg = v.ratings.length ? (v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length) : null;
+      const rawAvg = v.ratingWeight ? (v.ratingSum/v.ratingWeight) : null;
       const rawBoughtInRate = v.boughtIn / v.total;
       const boughtInRate = shrinkToward(v.boughtIn, v.total, baseline.meanRate, SHRINK_K);
-      const avg = (rawAvg!=null && baseline.meanRating!=null) ? shrinkToward(v.ratings.reduce((a,b)=>a+b,0), v.ratings.length, baseline.meanRating, SHRINK_K) : rawAvg;
+      const avg = (rawAvg!=null && baseline.meanRating!=null) ? shrinkToward(v.ratingSum, v.ratingWeight, baseline.meanRating, SHRINK_K) : rawAvg;
       const showBreakdown = Object.entries(v.breakdown).map(([showId,b])=>({showId, title:b.title, experiences:b.experiences}));
       return {name, names:v.names, avg, rawAvg, boughtInRate, rawBoughtInRate, showCount: v.shows.size, showTitles: [...v.shows], showBreakdown};
     })
@@ -2622,7 +2667,8 @@ function openCollabShowsModal(c){
         const expLines = sb.experiences.map(e=>{
           const ratingText = (e.rating!==null && e.rating!==undefined) ? `${RATING_LABELS[e.rating]} (${e.rating}/5)` : 'no rating';
           const verdictLabel = (VERDICTS.find(v=>v.key===e.verdict)||{}).label || 'no verdict';
-          return `${ratingText} · ${verdictLabel}`;
+          const repeatTag = e.repeatLive ? ' (counted 2x — seen live more than once)' : '';
+          return `${ratingText} · ${verdictLabel}${repeatTag}`;
         }).join(', ');
         const show = getShow(sb.showId);
         const roleText = show ? rolesTextForShow(c.names, show) : '';
@@ -2712,23 +2758,22 @@ function runLocalVibeCheck(){
   const collabMap = {};
   loggedShows.forEach(s=>{
     const st = getState(s.id);
-    const ratings = st.experiences.map(e=>e.rating).filter(r=>r!==null && r!==undefined);
-    const boughtInCount = st.experiences.filter(e=>e.verdict==='boughtIn' || e.verdict==='allIn').length;
-    const total = st.experiences.length;
+    const wstats = weightedExpStats(st.experiences);
     creditUnitsForShow(s.team, duoMap).forEach(unit=>{
       const key = unit.displayName;
-      if(!collabMap[key]) collabMap[key] = {names:unit.names, ratings:[], boughtIn:0, total:0, shows:new Set()};
-      collabMap[key].ratings.push(...ratings);
-      collabMap[key].boughtIn += boughtInCount;
-      collabMap[key].total += total;
+      if(!collabMap[key]) collabMap[key] = {names:unit.names, ratingSum:0, ratingWeight:0, boughtIn:0, total:0, shows:new Set()};
+      collabMap[key].ratingSum += wstats.ratingSum;
+      collabMap[key].ratingWeight += wstats.ratingWeight;
+      collabMap[key].boughtIn += wstats.boughtInWeight;
+      collabMap[key].total += wstats.totalWeight;
       collabMap[key].shows.add(s.title);
     });
   });
   const collabStats = Object.entries(collabMap)
     .map(([name,v])=>{
-      const rawAvg = v.ratings.length ? v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length : null;
+      const rawAvg = v.ratingWeight ? v.ratingSum/v.ratingWeight : null;
       const boughtInRate = shrinkToward(v.boughtIn, v.total, baseline.meanRate, SHRINK_K);
-      const avg = (rawAvg!=null && baseline.meanRating!=null) ? shrinkToward(v.ratings.reduce((a,b)=>a+b,0), v.ratings.length, baseline.meanRating, SHRINK_K) : rawAvg;
+      const avg = (rawAvg!=null && baseline.meanRating!=null) ? shrinkToward(v.ratingSum, v.ratingWeight, baseline.meanRating, SHRINK_K) : rawAvg;
       return {
         name,
         names: v.names,
@@ -3061,23 +3106,22 @@ async function runLiveComputerFriend(){
   const collabMap = {};
   loggedShows.forEach(s=>{
     const st = getState(s.id);
-    const ratings = st.experiences.map(e=>e.rating).filter(r=>r!==null && r!==undefined);
-    const boughtInCount = st.experiences.filter(e=>e.verdict==='boughtIn' || e.verdict==='allIn').length;
-    const total = st.experiences.length;
+    const wstats = weightedExpStats(st.experiences);
     creditUnitsForShow(s.team, duoMap).forEach(unit=>{
       const key = unit.displayName;
-      if(!collabMap[key]) collabMap[key] = {names:unit.names, ratings:[], boughtIn:0, total:0, shows:new Set()};
-      collabMap[key].ratings.push(...ratings);
-      collabMap[key].boughtIn += boughtInCount;
-      collabMap[key].total += total;
+      if(!collabMap[key]) collabMap[key] = {names:unit.names, ratingSum:0, ratingWeight:0, boughtIn:0, total:0, shows:new Set()};
+      collabMap[key].ratingSum += wstats.ratingSum;
+      collabMap[key].ratingWeight += wstats.ratingWeight;
+      collabMap[key].boughtIn += wstats.boughtInWeight;
+      collabMap[key].total += wstats.totalWeight;
       collabMap[key].shows.add(s.title);
     });
   });
   const collabStats = Object.entries(collabMap)
     .map(([name,v])=>{
-      const rawAvg = v.ratings.length ? v.ratings.reduce((a,b)=>a+b,0)/v.ratings.length : null;
+      const rawAvg = v.ratingWeight ? v.ratingSum/v.ratingWeight : null;
       const boughtInRate = +shrinkToward(v.boughtIn, v.total, baseline.meanRate, SHRINK_K).toFixed(2);
-      const avg = (rawAvg!=null && baseline.meanRating!=null) ? +shrinkToward(v.ratings.reduce((a,b)=>a+b,0), v.ratings.length, baseline.meanRating, SHRINK_K).toFixed(2) : rawAvg;
+      const avg = (rawAvg!=null && baseline.meanRating!=null) ? +shrinkToward(v.ratingSum, v.ratingWeight, baseline.meanRating, SHRINK_K).toFixed(2) : rawAvg;
       return {
         name,
         names: v.names,
@@ -3119,7 +3163,8 @@ async function runLiveComputerFriend(){
       const verdictLabel = (VERDICTS.find(v=>v.key===e.verdict)||{}).label || (e.verdict || 'no verdict given');
       const ratingText = (e.rating!==null && e.rating!==undefined) ? `${e.rating}/5` : 'no rating given';
       const performedTag = e.performedIn ? ', performed in this one' : '';
-      return `${capLabel}: ${ratingText}, ${verdictLabel}${performedTag}`;
+      const repeatTag = (e.capacity==='live' && e.repeatLive) ? ', seen live more than once' : '';
+      return `${capLabel}: ${ratingText}, ${verdictLabel}${performedTag}${repeatTag}`;
     });
     return `${s.title} — ${expLines.join('; ')}`;
   });
@@ -3144,6 +3189,7 @@ Rules:
 - Treat a show sitting in the "fine" (3/5) band across two or more different formats as a real signal of quiet dislike, not neutrality — name it directly if one is given to you.
 - Treat a show logged 3+ times with nothing rated below a 4 as a real, strong favorite in its own right — even if its creative team doesn't otherwise appear among the top collaborators. A one- or two-show creative team can legitimately never clear the collaborator-level bar, so don't undersell this signal just because it's tied to a single title.
 - The collaborator percentages and averages below are already adjusted for small sample size (a thin track record is pulled toward the user's overall average) — cite them as given, don't second-guess or re-derive them.
+- A Live experience marked "seen live more than once" in the breakdown below counts as 2 toward the collaborator and comeback-show totals, not 1 — that's intentional weighting, not a discrepancy to flag if the totals don't match a literal count of breakdown lines.
 - Never recommend anything on the "don't care" list provided below.
 - Where a don't-care entry includes a stated reason, use it to reason about whether a new recommendation risks the same objection (e.g. premise-level, creator-level, genre-level) — but the reason is never grounds to recommend the don't-care show itself.
 - Never recommend anything on the "already logged" list provided below.

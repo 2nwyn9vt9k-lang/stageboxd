@@ -478,6 +478,13 @@
   .collab-name-btn{ background:none; border:none; padding:0; margin:0; font:inherit; color:var(--chalk); text-decoration:underline; text-decoration-color:var(--panel-line); cursor:pointer; }
   .collab-name-btn:hover{ color:var(--amber); text-decoration-color:var(--amber); }
   .collab-row b{ color:var(--amber); }
+  /* Inline duo-split control (2026-06-30, replaces the "review detected
+     pairs" modal entirely): a quiet, low-contrast link that only appears
+     next to a name that's CURRENTLY shown merged — on the card row and in
+     the audit popup — instead of a separate screen listing every pair
+     whether or not anything's wrong with it. */
+  .duo-split-btn{ background:none; border:none; padding:0; margin-left:6px; font-family:var(--font-mono); font-size:10px; color:var(--chalk-dim); text-decoration:underline; text-decoration-color:var(--panel-line); cursor:pointer; }
+  .duo-split-btn:hover{ color:var(--curtain); text-decoration-color:var(--curtain); }
   .flag-row{ font-family:var(--font-body); font-size:13px; padding:6px 0; }
   .flag-row b{ color:var(--amber); }
 
@@ -567,7 +574,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-30d</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-30e</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -2359,9 +2366,8 @@ const LIVE_REPEAT_WEIGHT = 2; // a Live experience flagged "seen multiple times"
 function pairKey(a,b){ return [a,b].sort().join('||'); }
 
 // Per-pair show counts from the user's own logged data, regardless of
-// DUO_THRESHOLD or the denylist — shared by getRecognizedDuos() and the
-// "review detected pairs" management list, which needs raw counts for
-// denied pairs too (so a denial can be reviewed/reversed later).
+// DUO_THRESHOLD or the denylist — shared by getRecognizedDuos() above and
+// the small data sweeps elsewhere that need raw pair counts.
 function getDuoPairCounts(loggedShows){
   const pairShowSets = {};
   loggedShows.forEach(s=>{
@@ -2409,7 +2415,13 @@ function getShowCountsByName(loggedShows){
 // shows) still applies underneath as a floor, so a pair sharing their only
 // logged show each can't compute as 100% mutual affinity off one data
 // point. DATA.duoDenylist remains as a manual safety valve on top of all of
-// this for the rare case the math still gets a specific pair wrong.
+// this for the rare case the math still gets a specific pair wrong — as of
+// build 2026-06-30e, the only way IN to that denylist is a small "not a
+// duo" link sitting right next to a name that's currently shown merged (the
+// collaborator card row, the audit popup); there's no standalone review
+// screen anymore, and no UI path back out for an already-denied pair, by
+// request, since that's the case mutual affinity now mostly handles on its
+// own. See Known Limitations.
 function getRecognizedDuos(loggedShows){
   const pairShowSets = getDuoPairCounts(loggedShows);
   const showCounts = getShowCountsByName(loggedShows);
@@ -2440,31 +2452,6 @@ function getRecognizedDuos(loggedShows){
     if(duoMap[duoMap[name]] !== name) delete duoMap[name];
   });
   return duoMap;
-}
-
-// Every pair currently worth showing in the "review detected pairs" manager:
-// either actively merged right now (per getRecognizedDuos() above) or sitting
-// in the denylist with enough shared shows to still be a real candidate —
-// union of both, so a denied pair stays reviewable/reversible even after a
-// name's fallen through to a different partner, and a newly-active pair
-// (e.g. the fallback itself) is reachable too. This has to work independent
-// of whether a pair's merged row currently renders on the collaborator card —
-// a pair that fails the card's own qualifying floor (2+ shows, ≥50% bought-in)
-// never gets a row to click into at all, which is exactly what made the
-// Sondheim/Laurents case invisible in the first place.
-function getDuoManagementList(loggedShows){
-  const pairShowSets = getDuoPairCounts(loggedShows);
-  const denylist = new Set(DATA.duoDenylist || []);
-  const activeDuoMap = getRecognizedDuos(loggedShows);
-  const keys = new Set();
-  Object.entries(activeDuoMap).forEach(([name,partner])=> keys.add(pairKey(name,partner)));
-  denylist.forEach(key=>{ if(pairShowSets[key] && pairShowSets[key].size>=DUO_THRESHOLD) keys.add(key); });
-  const rows = Array.from(keys).map(key=>{
-    const [a,b] = key.split('||');
-    return { a, b, key, count: pairShowSets[key].size, denied: denylist.has(key) };
-  });
-  rows.sort((x,y)=> y.count-x.count || x.a.localeCompare(y.a));
-  return rows;
 }
 
 // Given one show's team and the recognized-duos map, returns the credit
@@ -2700,9 +2687,9 @@ function renderVibe(){
 
     ${statCardHtml('collab', 'Creative collaborators you keep buying into',
       '<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin-top:0;">Composers, lyricists, and book writers you actually keep buying into — not just people you\'ve crossed paths with a lot. Click a name for the real story behind the number.</p>',
-      '<button class="btn ghost-dark small" id="manageDuoPairsBtn" style="margin-bottom:6px;">review detected pairs</button>',
+      '',
       collabStats.length ? collabStats.map((c,i)=>`
-        <div class="collab-row"><span><button class="collab-name-btn" data-collab-idx="${i}">${escapeHtml(c.name)}</button> <span style="color:var(--chalk-dim)">(${c.showCount} show${c.showCount===1?'':'s'})</span></span>
+        <div class="collab-row"><span><button class="collab-name-btn" data-collab-idx="${i}">${escapeHtml(c.name)}</button> <span style="color:var(--chalk-dim)">(${c.showCount} show${c.showCount===1?'':'s'})</span>${c.names.length===2?`<button class="duo-split-btn" data-duo-split="${i}">not a duo</button>`:''}</span>
         <span>${c.boughtInCount} of ${c.totalCount} experiences bought-in or All In${c.avg?' · '+c.avg.toFixed(1)+'/5 avg':''}</span></div>
       `).join('') : '<p style="font-family:var(--font-mono);font-size:12px;color:var(--chalk-dim);">Log a few experiences and this fills in.</p>'
     )}
@@ -2753,6 +2740,17 @@ function renderVibe(){
   el.querySelectorAll('.collab-name-btn[data-collab-idx]').forEach(btn=>{
     btn.onclick = ()=> openCollabShowsModal(collabStats[Number(btn.dataset.collabIdx)]);
   });
+  el.querySelectorAll('.duo-split-btn[data-duo-split]').forEach(btn=>{
+    btn.onclick = (ev)=>{
+      ev.stopPropagation();
+      const c = collabStats[Number(btn.dataset.duoSplit)];
+      if(c && c.names.length===2){
+        DATA.duoDenylist.push(pairKey(c.names[0], c.names[1]));
+        saveData();
+        renderVibe();
+      }
+    };
+  });
   el.querySelectorAll('[data-vibe-card-toggle]').forEach(h=>{
     h.onclick = ()=>{
       const key = h.dataset.vibeCardToggle;
@@ -2773,7 +2771,6 @@ function renderVibe(){
   document.getElementById('runVibeCheck').onclick = ()=> runLocalVibeCheck();
   document.getElementById('runLiveComputerFriend').onclick = ()=> runLiveComputerFriend();
   document.getElementById('vibeHistBtn').onclick = ()=> openVibeHistoryModal();
-  document.getElementById('manageDuoPairsBtn').onclick = ()=> openDuoManagementModal(loggedShows);
   el.querySelectorAll('.vibe-tab-pill').forEach(p=>{
     p.onclick = ()=> setVibeActiveTab(p.dataset.vibeTab);
   });
@@ -2827,50 +2824,20 @@ function openCollabShowsModal(c){
       <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">${c.showCount} show${c.showCount===1?'':'s'} behind this stat · ${c.boughtInCount} of ${c.totalCount} experiences bought-in or All In${c.avg?' · '+c.avg.toFixed(1)+'/5 avg':''}</p>
       <p style="font-family:var(--font-mono);font-size:10px;color:var(--chalk-dim);margin-top:-4px;">Counted per logged experience, not per show — a show logged more than once (e.g. listened AND watched) contributes more than one data point below.</p>
       <div>${breakdownHtml}</div>
+      ${c.names.length===2 ? `<div class="btnrow" style="margin-top:10px;"><button class="btn ghost-dark small" id="collabSplitDuoBtn">not actually a duo — split into two</button></div>` : ''}
       <div class="btnrow"><button class="btn small" id="collabModalClose">Close</button></div>
     </div>
   `;
   document.body.appendChild(back);
-  back.querySelector('#collabModalClose').onclick = ()=> back.remove();
-}
-
-// "Review detected pairs" (2026-06-28): lists every pair the algorithm has
-// either actively merged or previously had denied, with a toggle per row —
-// reachable independent of whether a pair's merged row renders on the
-// collaborator card itself, since a pair that fails the card's own
-// qualifying floor never gets a row to click into (the Sondheim/Laurents
-// case that motivated this feature).
-function openDuoManagementModal(loggedShows){
-  const back = document.createElement('div');
-  back.className = 'modal-backdrop';
-  const rows = getDuoManagementList(loggedShows);
-  const rowsHtml = rows.length ? rows.map(r=>`
-    <div class="lib-subitem" style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-      <span>${escapeHtml(r.a)} & ${escapeHtml(r.b)} <span class="sub-extra">— ${r.count} shared show${r.count===1?'':'s'}${r.denied?' · currently kept solo':''}</span></span>
-      <button class="btn ghost-dark small" data-duo-toggle="${escapeHtml(r.key)}" style="white-space:nowrap;">${r.denied ? 're-enable as duo' : 'not actually a duo'}</button>
-    </div>
-  `).join('') : '<p style="font-family:var(--font-mono);font-size:12px;color:var(--chalk-dim);">No recurring pairs detected from your logged data yet — needs 2+ shared shows between two names.</p>';
-  back.innerHTML = `
-    <div class="modal">
-      <h2 class="section-title" style="color:var(--ink)">Review detected pairs</h2>
-      <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">Recurring pairs are detected automatically now — a pairing only forms if the shared shows are a clear majority of BOTH people's own catalogs, so most one-off overlaps never show up here at all. This list is the manual safety valve for when the math still gets a specific pair wrong: anyone currently merged, plus anyone you've previously forced solo. Mark one "not actually a duo" to keep both names credited solo regardless of the math; the change is permanent until you reverse it here.</p>
-      <div>${rowsHtml}</div>
-      <div class="btnrow"><button class="btn small" id="duoManageModalClose">Close</button></div>
-    </div>
-  `;
-  document.body.appendChild(back);
-  back.querySelectorAll('[data-duo-toggle]').forEach(btn=>{
-    btn.onclick = ()=>{
-      const key = btn.dataset.duoToggle;
-      const i = DATA.duoDenylist.indexOf(key);
-      if(i>=0) DATA.duoDenylist.splice(i,1); else DATA.duoDenylist.push(key);
+  if(c.names.length===2){
+    document.getElementById('collabSplitDuoBtn').onclick = ()=>{
+      DATA.duoDenylist.push(pairKey(c.names[0], c.names[1]));
       saveData();
       back.remove();
-      openDuoManagementModal(loggedShows);
       renderVibe();
     };
-  });
-  back.querySelector('#duoManageModalClose').onclick = ()=>{ back.remove(); renderVibe(); };
+  }
+  back.querySelector('#collabModalClose').onclick = ()=> back.remove();
 }
 
 function renderAnchors(){

@@ -574,7 +574,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-30f</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-30g</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -855,6 +855,7 @@ const VERDICTS = [
    ============================================================ */
 const STORAGE_KEY = 'ledger-data';
 const API_KEY_STORAGE = 'underscore-api-key';
+const EXPORT_COUNTER_KEY = 'underscore-export-counter';
 let DATA = { overrides:{}, customShows:{}, anchors:[], vibeHistory:[], duoDenylist:[] };
 let dataLoaded = false;
 
@@ -870,6 +871,31 @@ function setApiKey(key){
 }
 function clearApiKey(){
   try{ localStorage.removeItem(API_KEY_STORAGE); }catch(e){}
+}
+
+/* ---- export-reminder counter: tracks experience changes since the last
+   export. Lives in its own localStorage key (like the API key) so it's
+   never swept into an EXPORT backup — counting it in the backup would reset
+   the counter on import, which is exactly what we want, but only the
+   resetExportCounter() call below should do that, not the JSON payload.
+   Increments on addExperience / updateExperience / deleteExperience only —
+   status flags (someday, dontcare, scheduled) and show metadata (custom show
+   edits, role tags, duo denylist) are deliberately excluded: they're low-
+   stakes changes you'd rarely need to recover if a session went wrong. ---- */
+function getExportCounter(){
+  try{ return parseInt(localStorage.getItem(EXPORT_COUNTER_KEY)||'0',10)||0; }
+  catch(e){ return 0; }
+}
+function setExportCounter(n){
+  try{ localStorage.setItem(EXPORT_COUNTER_KEY, String(n)); }catch(e){}
+  updateExportBadge(n);
+}
+function bumpExportCounter(){ setExportCounter(getExportCounter()+1); }
+function resetExportCounter(){ setExportCounter(0); }
+function updateExportBadge(n){
+  const btn = document.getElementById('exportBtn');
+  if(!btn) return;
+  btn.textContent = n>0 ? `EXPORT (${n})` : 'EXPORT';
 }
 
 function loadData(){
@@ -972,17 +998,20 @@ function addExperience(id, exp){
     o.scheduledDate = null;
   }
   saveData();
+  bumpExportCounter();
 }
 function updateExperience(id, expId, patch){
   const o = ensureOverride(id);
   const e = o.experiences.find(x=>x.id===expId);
   if(e) Object.assign(e, patch);
   saveData();
+  bumpExportCounter();
 }
 function deleteExperience(id, expId){
   const o = ensureOverride(id);
   o.experiences = o.experiences.filter(x=>x.id!==expId);
   saveData();
+  bumpExportCounter();
 }
 function addCustomShow({title, team, year, tags}){
   const id = 'custom-' + slugify(title) + '-' + Date.now();
@@ -3395,6 +3424,7 @@ document.getElementById('exportBtn').onclick = ()=>{
   a.download = 'the-underscore-backup.json';
   a.click();
   URL.revokeObjectURL(url);
+  resetExportCounter();
 };
 document.getElementById('importBtn').onclick = ()=> document.getElementById('importFile').click();
 document.getElementById('apiKeyBtn').onclick = ()=> openApiKeyModal();
@@ -3412,6 +3442,7 @@ document.getElementById('importFile').onchange = (e)=>{
       renderReview();
       renderLibrary();
       renderVibe();
+      resetExportCounter();
       alert('Imported.');
     }catch(err){
       alert('That file did not parse as valid ledger JSON.');
@@ -3432,6 +3463,7 @@ function escapeHtml(str){
   document.getElementById('tab-review').innerHTML = `<div class="empty"><p>loading the ledger...</p></div>`;
   checkStorageHealth();
   await loadData();
+  updateExportBadge(getExportCounter());
   renderReview();
 })();
 </script>

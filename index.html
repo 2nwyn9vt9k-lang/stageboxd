@@ -306,6 +306,40 @@
 
   /* ---------- library list ---------- */
   .lib-controls{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
+  /* A-Z jump bar (build 2026-06-30c): sticky directly under nav so it stays
+     reachable while scrolling a 100+ show grid. `top` and the matching
+     --lib-scroll-offset custom property are both set live in JS from nav's
+     actual measured height, not hardcoded, so this keeps working if nav's
+     own height ever changes (bigger system font, a future padding tweak)
+     instead of silently drifting out of alignment. flex-wrap (not
+     overflow-x scroll) handles narrow phones — wraps to a second row rather
+     than requiring a horizontal swipe on top of a sticky element. */
+  .lib-jump-bar{
+    position:sticky;
+    top:0;
+    z-index:19;
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    background:var(--panel);
+    padding:8px 0;
+    margin-bottom:10px;
+    border-bottom:1px solid var(--panel-line);
+  }
+  .lib-jump-btn{
+    flex:0 0 auto;
+    background:none;
+    border:1px solid var(--panel-line);
+    color:var(--chalk-dim);
+    font-family:var(--font-mono);
+    font-size:11px;
+    letter-spacing:.5px;
+    padding:6px 11px;
+    border-radius:4px;
+    cursor:pointer;
+  }
+  .lib-jump-btn:hover{ border-color:var(--amber); color:var(--amber); }
+  .lib-jump-btn.disabled{ opacity:.35; cursor:default; }
   #libList{ display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:10px; margin-bottom:6px; }
   .lib-card{
     background:var(--panel);
@@ -317,6 +351,10 @@
     flex-direction:column;
     gap:4px;
     position:relative;
+    /* offset for the sticky nav+jump-bar pair, so a jumped-to card lands
+       fully visible instead of partway hidden underneath them — value is
+       set live in JS (renderLibJumpBar), this is just a sane fallback. */
+    scroll-margin-top:var(--lib-scroll-offset, 90px);
   }
   .lib-card:hover{ border-color:var(--amber-dim); }
   .lib-card .title{ font-family:var(--font-display); font-size:16px; letter-spacing:.3px; text-transform:uppercase; line-height:1.15; }
@@ -524,7 +562,7 @@
   <button id="exportBtn">EXPORT</button>
   <button id="importBtn">IMPORT</button>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-30b</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-30c</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -779,6 +817,17 @@ const CAPACITIES = [
   {key:'proshot', label:'Watched Pro-Shot', icon:'🎥'},
   {key:'movie', label:'Watched the Movie', icon:'🎬'},
 ];
+// Library sort/jump-bar key (build 2026-06-30c): strips a single leading
+// "the"/"a"/"an" so "A Chorus Line" files under C and "The Band's Visit"
+// files under B, the way a card catalog would — ONLY affects ordering and
+// which jump-bar group a show counts toward. The actual title (s.title) is
+// never modified anywhere; every display path still reads "A Chorus Line"
+// in full. Only strips when it's the entire first word (a space-separated
+// match), so "Aida" and "Annie" correctly stay under A instead of getting
+// mis-stripped down to "ida"/"nnie".
+function librarySortKey(title){
+  return title.replace(/^(the|a|an)\s+/i, '').trim().toLowerCase();
+}
 const VENUE_TYPES = ['Broadway','West End','National Tour','Off-Broadway / Professional','Regional / Community','School'];
 const RATING_LABELS = {1:'Hard No',2:'Meh',3:'Fine (the danger zone)',4:'Liked It',5:'Obsessed'};
 const VERDICTS = [
@@ -1811,15 +1860,18 @@ Suggest exactly 8 shows.`;
    LIBRARY TAB
    ============================================================ */
 let libFilter = { text:'', cap:null };
-// custompending defaults OPEN (the other three stay closed) — unlike
-// someday/scheduled/dontcare, this bucket only ever holds accidental junk
-// (a duplicate add, an in-progress custom show abandoned mid-fill), and
-// there's never a reason to want it hidden by default. This is what was
-// actually missing for the BBAJ duplicates: the fix that routes them here
-// worked, the section was just collapsed by default the same as the other
-// three, making "nothing's here" and "something's here but hidden" look
-// identical at a glance.
-let libSectionOpen = { custompending:true, someday:false, scheduled:false, dontcare:false };
+// Resolved (build 2026-06-30c): custompending now defaults CLOSED and
+// renders LAST, matching the other three sections, instead of pinned first
+// and auto-open. Cameron's call — in practice this section is empty almost
+// always, so "front and center, always open" just meant grumpily closing
+// an empty box on every Library visit. Deliberately NOT removed outright:
+// it's still the only place in the app a custom show with neither a status
+// nor a logged experience can ever surface (invisible to the main grid, no
+// experience; invisible to scheduled/someday/dontcare, no status) — the
+// exact bucket the BBAJ duplicate-add bug fell into. Demoting it to quiet
+// keeps that recovery path alive without it being noisy in the common case
+// where it's empty.
+let libSectionOpen = { custompending:false, someday:false, scheduled:false, dontcare:false };
 
 function renderLibrary(){
   const el = document.getElementById('tab-library');
@@ -1843,6 +1895,7 @@ function renderLibrary(){
     <div class="lib-controls">
       ${CAPACITIES.map(c=>`<span class="chip lib-cap-filter${libFilter.cap===c.key?' on':''}" data-cap="${c.key}">${c.icon} ${c.label}</span>`).join('')}
     </div>
+    <div class="lib-jump-bar" id="libJumpBar"></div>
     <div id="libList"></div>
 
     <div class="lib-section-divider"></div>
@@ -1877,14 +1930,26 @@ function renderLibList(){
     if(libFilter.cap && !st.experiences.some(e=>e.capacity===libFilter.cap)) return false;
     return true;
   });
-  filtered.sort((a,b)=>a.title.localeCompare(b.title));
+  // Resolved (build 2026-06-30c): sorts on librarySortKey (leading
+  // the/a/an stripped), not the literal title — "A Chorus Line" now files
+  // under C. Display below still reads s.title in full; only ordering uses
+  // the stripped key.
+  filtered.sort((a,b)=> librarySortKey(a.title).localeCompare(librarySortKey(b.title)));
+  // Jump bar reflects this exact filtered/sorted list every time, including
+  // the empty case (all groups render disabled rather than the bar vanishing).
+  renderLibJumpBar(filtered);
   if(filtered.length===0){
     listEl.innerHTML = `<div class="empty"><p>Nothing here yet. Log something in Review, or add a show directly.</p></div>`;
     return;
   }
   listEl.innerHTML = filtered.map(s=>{
     const st = getState(s.id);
-    const caps = [...new Set(st.experiences.map(e=>e.capacity))];
+    // Resolved (build 2026-06-30c): icons now always render in CAPACITIES'
+    // own fixed order (live/recording/proshot/movie), regardless of which
+    // order the experiences were actually logged in — previously this used
+    // Set-from-experience-order, so two shows with the same formats logged
+    // in a different sequence could show the icons in a different order.
+    const caps = CAPACITIES.map(c=>c.key).filter(k=> st.experiences.some(e=>e.capacity===k));
     const capIcons = caps.map(c=> (CAPACITIES.find(x=>x.key===c)||{}).icon || '').join(' ');
     const performedFlag = st.experiences.some(e=>e.performedIn);
     return `
@@ -1899,6 +1964,51 @@ function renderLibList(){
   listEl.querySelectorAll('.lib-card').forEach(card=>{
     card.onclick = ()=> openLibDetail(card.dataset.show);
   });
+}
+
+// A-Z jump bar (build 2026-06-30c): 8 letter-groups rather than all 26
+// letters, since 26 individual tap targets on a phone-width screen is a
+// real precision problem — grouping keeps it one-tap and always visible
+// without that. Each group jumps to the first show (in the CURRENT
+// filtered/sorted order passed in) whose librarySortKey starts with a
+// letter in that group's range; a group with no match in the current view
+// renders disabled/greyed rather than doing nothing silently on tap.
+const LIB_JUMP_GROUPS = [
+  {label:'A–C', from:'a', to:'c'},
+  {label:'D–F', from:'d', to:'f'},
+  {label:'G–I', from:'g', to:'i'},
+  {label:'J–L', from:'j', to:'l'},
+  {label:'M–O', from:'m', to:'o'},
+  {label:'P–R', from:'p', to:'r'},
+  {label:'S–U', from:'s', to:'u'},
+  {label:'V–Z', from:'v', to:'z'},
+];
+function renderLibJumpBar(sortedShows){
+  const host = document.getElementById('libJumpBar');
+  if(!host) return;
+  const targets = LIB_JUMP_GROUPS.map(g=>{
+    const match = sortedShows.find(s=>{
+      const ch = librarySortKey(s.title).charAt(0);
+      return ch >= g.from && ch <= g.to;
+    });
+    return {...g, showId: match ? match.id : null};
+  });
+  host.innerHTML = targets.map(g=>
+    `<button class="lib-jump-btn${g.showId?'':' disabled'}"${g.showId?` data-show="${g.showId}"`:''}${g.showId?'':' disabled'}>${g.label}</button>`
+  ).join('');
+  host.querySelectorAll('.lib-jump-btn:not(.disabled)').forEach(btn=>{
+    btn.onclick = ()=>{
+      const card = document.querySelector(`.lib-card[data-show="${btn.dataset.show}"]`);
+      if(card) card.scrollIntoView({behavior:'smooth', block:'start'});
+    };
+  });
+  // Sticky positioning and the scroll-offset cards use to clear it are both
+  // measured live from nav's actual rendered height rather than hardcoded,
+  // so this stays correct if nav's own height ever changes.
+  const nav = document.querySelector('nav');
+  const navH = nav ? nav.offsetHeight : 48;
+  host.style.top = navH + 'px';
+  document.documentElement.style.setProperty('--lib-scroll-offset', (navH + host.offsetHeight) + 'px');
 }
 
 /* Someday / scheduled / don't-care: each its own collapsible section, with its
@@ -1917,7 +2027,11 @@ function renderLibList(){
    logged against it yet had no edit/cancel path anywhere once its date
    passed (the due-banner just nagged forever). Opens the same detail popup
    and calendar control every other reachable show already has; someday and
-   don't-care deliberately stay non-clickable for now, scoped decision. */
+   don't-care deliberately stay non-clickable for now, scoped decision.
+   Resolved (build 2026-06-30c): pending custom shows now renders LAST,
+   below scheduled/someday/dontcare, and defaults closed like the other
+   three — see libSectionOpen's comment above for why. Order is otherwise
+   unchanged: scheduled, someday, dontcare, then pending. */
 function renderLibSidelists(){
   const host = document.getElementById('libSidelists');
   if(!host) return;
@@ -1935,8 +2049,6 @@ function renderLibSidelists(){
     .sort((a,b)=>a.title.localeCompare(b.title));
 
   host.innerHTML =
-    (pendingCustomShows.length ? `<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin:8px 0 2px;">Custom shows with no status and nothing logged yet — usually an accidental duplicate add. Tap one to open and delete it.</p>` : '') +
-    libSectionHtml('custompending', 'pending custom shows', pendingCustomShows, ()=>'', true) +
     libSectionHtml('scheduled', 'scheduled', scheduledShows, s=>{
       const st = getState(s.id);
       return st.scheduledDate ? `<span class="sub-extra"> · on the calendar for ${escapeHtml(st.scheduledDate)}</span>` : '';
@@ -1945,9 +2057,11 @@ function renderLibSidelists(){
     libSectionHtml('dontcare', "don't care", dontcareShows, s=>{
       const st = getState(s.id);
       return st.dontcareReason ? `<span class="sub-extra"> · "${escapeHtml(st.dontcareReason)}"</span>` : '';
-    });
+    }) +
+    (pendingCustomShows.length ? `<p style="font-family:var(--font-mono);font-size:11px;color:var(--chalk-dim);margin:8px 0 2px;">Custom shows with no status and nothing logged yet — usually an accidental duplicate add. Tap one to open and delete it.</p>` : '') +
+    libSectionHtml('custompending', 'pending custom shows', pendingCustomShows, ()=>'', true);
 
-  ['custompending','scheduled','someday','dontcare'].forEach(key=>{
+  ['scheduled','someday','dontcare','custompending'].forEach(key=>{
     const header = document.getElementById('libSecHeader-'+key);
     if(header) header.onclick = ()=>{ libSectionOpen[key] = !libSectionOpen[key]; renderLibSidelists(); };
   });

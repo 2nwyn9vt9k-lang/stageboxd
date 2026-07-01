@@ -621,7 +621,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-01h</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-02a</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1123,6 +1123,42 @@ const SEED_PREMISES = {
   "bloomer-girl": "Set during the Civil War era, a young woman who champions women's rights and abolition falls for a Southern man visiting her father's hoopskirt business.",
   "mexican-hayride": "An American con man on the run from the law in Mexico gets tangled up with a female bullfighter and the customs official determined to catch him.",
   "carousel": "A carnival barker's whirlwind romance with a young millworker leads to marriage and hardship, and after his death, a chance to make amends with the daughter he left behind.",
+
+  // Batch 2 (build 2026-07-02a): 1946-1956, chronological — continuing
+  // straight through the seed list the same way batch 1 did, no filtering
+  // by decided/undecided status, just working forward by year.
+  "annie-get-your-gun": "Sharpshooter Annie Oakley joins Buffalo Bill's Wild West show, where a fierce professional rivalry with fellow marksman Frank Butler develops into an equally competitive romance.",
+  "call-me-mister": "A revue built around World War II veterans and servicewomen readjusting to civilian life, threaded through with the recurring romance of a Navy officer and the wife he's been separated from by the war.",
+  "st-louis-woman": "In 1898 St. Louis, a champion jockey's romance with a nightclub owner's girlfriend is shadowed by a dying rival's curse and the guilt she carries over his death.",
+  "brigadoon": "Two American tourists lost in the Scottish highlands stumble upon a mysterious village that materializes out of the mist only once every hundred years, and one of them falls for a local woman.",
+  "finian-s-rainbow": "An Irish immigrant and his daughter settle in the American South carrying a stolen pot of leprechaun gold, drawing the gold's furious leprechaun owner into a satire of greed and racial prejudice.",
+  "allegro": "A small-town doctor's life is traced from birth through the compromises of his career, as he's pulled between the idealism of small-town practice and the temptations of a lucrative city hospital job.",
+  "high-button-shoes": "In early-1900s New Jersey, a fast-talking con man and his partner scheme to swindle a family out of land they believe is worth a fortune.",
+  "street-scene": "Over one sweltering day outside a New York tenement, a teenage girl's hopes for a better life collide with the fallout of her mother's affair, which her jealous father discovers with fatal consequences.",
+  "kiss-me-kate": "A divorced actor and actress reunite to co-star in a musical version of 'The Taming of the Shrew,' their onstage sparring mirroring their real one, complicated further by a pair of gangsters chasing a gambling debt.",
+  "where-s-charley": "An Oxford student disguises himself as his own visiting aunt to provide the chaperone his and his friend's love interests need, based on the farce 'Charley's Aunt.'",
+  "south-pacific": "During World War II on a South Pacific island, a young Navy nurse's romance with a French plantation owner and a Marine lieutenant's romance with a local island woman are each tested by prejudices they didn't know they carried.",
+  "gentlemen-prefer-blondes": "A gold-digging showgirl and her more clear-eyed best friend sail for Paris in pursuit of wealthy men and diamonds, landing in one comic scrape after another.",
+  "lost-in-the-stars": "In apartheid-era South Africa, a Black minister travels to Johannesburg searching for his son, whose involvement in a crime sets off a tragedy that tests the minister's faith.",
+  "guys-and-dolls": "A high-rolling gambler bets he can win over a straitlaced mission worker, while his oldest friend tries to keep a floating craps game running and finally marry the fiancée who's waited fourteen years for a wedding.",
+  "call-me-madam": "A wealthy, socially prominent Washington hostess is appointed U.S. ambassador to a small European country, where she navigates local politics and an unexpected romance.",
+  "the-king-and-i": "An English widow arrives in Bangkok to tutor the many children of the King of Siam, and the two develop a fraught, evolving respect as their worldviews repeatedly clash.",
+  "paint-your-wagon": "During the California Gold Rush, a prospector and his daughter help build a booming, lawless mining town, and the daughter finds herself caught between two very different suitors.",
+  "wish-you-were-here": "A young woman escapes to an adults' summer camp to clear her head before her wedding to a man she's not sure she loves, and falls for a waiter with no interest in anything long-term.",
+  "wonderful-town": "Two sisters from Ohio move into a cheap Greenwich Village basement apartment in the 1930s, chasing careers in writing and acting amid a parade of eccentric neighbors and suitors.",
+  "can-can": "In 1890s Paris, the owner of a dance hall known for its scandalous can-can fights to keep her business running against a crusading judge sent to shut her down, and the two begin to fall for each other.",
+  "kismet": "Over a single fantastical day in old Baghdad, a wily, penniless poet's bold scheming reshapes both his own fortunes and his daughter's romantic future.",
+  "the-pajama-game": "A newly hired pajama-factory superintendent falls for the head of the union grievance committee just as a labor dispute over a seven-and-a-half-cent raise threatens to put them on opposite sides.",
+  "the-boy-friend": "A loving pastiche of 1920s musical comedy, following a wealthy young woman at a French finishing school who falls for a boy who turns out to be far richer than he let on.",
+  "the-golden-apple": "Homer's Iliad and Odyssey are transplanted to a small Washington State town at the turn of the 20th century, where a soldier returning from war must eventually choose between the pull of the wider world and the wife waiting faithfully at home.",
+  "damn-yankees": "A middle-aged baseball fan sells his soul to the devil to become the young slugging star who can finally lead his beloved team past the New York Yankees, then has second thoughts about the bargain.",
+  "plain-and-fancy": "Two New Yorkers travel to Pennsylvania Dutch country to sell an inherited farm and find themselves drawn into the Amish community's traditions and a young couple's romantic troubles.",
+  "silk-stockings": "A stern Soviet envoy sent to Paris to retrieve three wayward comrades falls for the American film producer she's supposed to be stopping, and for the city's charms along with him.",
+  "my-fair-lady": "A phonetics professor bets he can transform a Cockney flower girl into someone who can pass as a duchess, with consequences neither of them anticipated for how they see each other.",
+  "candide": "Based on Voltaire's satire, an endlessly optimistic young man is cast out of his sheltered home and dragged through a string of escalating catastrophes across the world while clinging to the belief that all is for the best.",
+  "bells-are-ringing": "A warmhearted telephone-answering-service operator can't resist getting personally involved in her clients' lives, including falling for a playwright client she's never actually met.",
+  "the-most-happy-fella": "An aging Napa Valley vineyard owner courts a young waitress by mail using a photo of his handsome foreman instead of himself, and has to win her over for real once she arrives to meet him in person.",
+  "li-l-abner": "Based on the comic strip, the backwoods residents of Dogpatch scramble to keep their town off a government list of America's most useless places, after it's picked as the site for a nuclear test.",
 };
 // Returns a show's premise sentence, or null if none exists yet. A rare
 // per-show correction can be set on the override record's `premiseOverride`

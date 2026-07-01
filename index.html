@@ -621,7 +621,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-01g</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-01h</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1086,6 +1086,43 @@ RAW_SEED.forEach(([title,year,team,tags,roles])=>{
    schema and rendering only; content fills in over subsequent sessions.
    See the writeup's "Plot premises" section for coverage/priority order. */
 const SEED_PREMISES = {
+  // Batch 1 (build 2026-07-01h): pre-1946, chronological — the pre-1940
+  // Golden Age gap plus 1940-1945, the confirmed lowest-familiarity/highest-
+  // decision-value slice of the 187-show undecided Review queue.
+  "show-boat": "Follows the lives and loves of the performers and crew aboard a Mississippi riverboat theater troupe across several decades, confronting racism, ambition, and changing fortunes along the way.",
+  "a-connecticut-yankee": "A modern-day man is knocked unconscious and wakes up transported to King Arthur's medieval Camelot, where he uses his contemporary know-how to navigate court intrigue and romance.",
+  "funny-face": "A young woman schemes with two friends to steal back her diary from the overprotective guardian holding it, leading to a case of mistaken identity involving jewel thieves.",
+  "whoopee": "A hypochondriac vacationing at a Western dude ranch gets tangled up in helping a young woman escape a marriage arranged by her father.",
+  "fifty-million-frenchmen": "A wealthy young American in Paris bets his friend that he can win a woman's love without her knowing he's rich, so he poses as a poor tour guide to court her.",
+  "strike-up-the-band": "A satirical war breaks out between the United States and Switzerland over a tariff dispute involving chocolate, as a munitions manufacturer eager for profit stokes the conflict.",
+  "girl-crazy": "A wealthy New York playboy is banished by his father to run a struggling dude ranch in Arizona, where he turns it into a casino and falls for the local postmistress.",
+  "of-thee-i-sing": "A presidential candidate runs his campaign on a platform of love and must marry the winner of a beauty pageant to fulfill his own slogan, upending the country's politics along the way.",
+  "face-the-music": "A corrupt police captain and his social-climbing wife launder ill-gotten money by bankrolling a lavish Broadway revue during the Depression, with predictably chaotic results.",
+  "as-thousands-cheer": "A revue structured like the pages of a newspaper, with each musical number built around a different real or invented headline of the day.",
+  "let-em-eat-cake": "Having lost his reelection bid, a former president leads a shirt-based revolutionary movement to seize power back by force, escalating from Broadway satire into outright farce.",
+  "anything-goes": "Aboard a transatlantic ocean liner, a nightclub singer, a stowaway in love with a debutante, and a gangster disguised as a minister collide in a tangle of mistaken identities.",
+  "porgy-and-bess": "In a South Carolina fishing community, a disabled beggar falls in love with a woman entangled with a possessive, violent man and a drug dealer who won't let her go easily.",
+  "jumbo": "At a financially struggling circus, the ringmaster's daughter falls for a young performer who turns out to be the son of a rival circus owner scheming to take over the business.",
+  "on-your-toes": "A former vaudeville hoofer turned dance teacher becomes entangled with a visiting Russian ballet company, a jealous director, and a mobster subplot while trying to get his own jazz ballet produced.",
+  "babes-in-arms": "A group of teenagers left behind by their vaudevillian parents put on their own show to earn money and avoid being sent to a work farm.",
+  "i-d-rather-be-right": "A young couple's engagement plans get tangled up in a dream in which President Franklin D. Roosevelt tries to balance the federal budget in time for their wedding.",
+  "the-cradle-will-rock": "In the fictional Steeltown, USA, a union organizer squares off against a corrupt industrialist who controls the town's press, clergy, and civic life.",
+  "the-boys-from-syracuse": "Two sets of identical twins, separated at birth and each unaware the other exists, cause escalating chaos when they all end up in the same city on the same day.",
+  "knickerbocker-holiday": "In 17th-century New Amsterdam, a headstrong young colonist falls for the governor's ward while butting heads with the colony's autocratic new peg-legged governor, Peter Stuyvesant.",
+  "too-many-girls": "A wealthy man secretly hires four football players to pose as fellow students and protect his free-spirited daughter at her New Mexico college, with romance following close behind.",
+  "du-barry-was-a-lady": "A nightclub washroom attendant slips a Mickey Finn and dreams himself into the court of 18th-century France, where he becomes King Louis XV pursuing the famous courtesan Madame du Barry.",
+  "pal-joey": "An ambitious, morally slippery nightclub emcee starts an affair with a wealthy married woman willing to bankroll his own club, testing how far he'll go to get ahead.",
+  "cabin-in-the-sky": "After a gambler is fatally wounded, his soul becomes the subject of a battle between heavenly and hellish forces, while his devoted wife prays for the extra time to save him.",
+  "panama-hattie": "A brash American nightclub owner in the Panama Canal Zone tries to win over the disapproving young daughter of the wealthy man she hopes to marry.",
+  "lady-in-the-dark": "A successful but indecisive magazine editor undergoes psychoanalysis to work through her career and romantic choices, with her dreams staged as elaborate musical fantasies.",
+  "by-jupiter": "An army of Greek soldiers invades the land of the Amazons to reclaim a sacred girdle, only to be captured by the ruling women warriors, sparking a cross-cultural romance and a comic reversal of traditional gender roles.",
+  "oklahoma": "In turn-of-the-century Oklahoma Territory, a farm girl choosing between two suitors gets caught in the middle of a brewing rivalry between local farmers and cowmen.",
+  "one-touch-of-venus": "A barber slips an engagement ring onto the finger of a statue of Venus, accidentally bringing the goddess to life and complicating his relationship with his fiancée.",
+  "something-for-the-boys": "Three long-lost cousins inherit a run-down Texas ranch near an army base and turn it into a boardinghouse for soldiers' wives, with one cousin discovering her dental fillings pick up radio signals.",
+  "on-the-town": "Three sailors on a 24-hour shore leave in New York City chase romance and adventure across the city before their ship departs at midnight.",
+  "bloomer-girl": "Set during the Civil War era, a young woman who champions women's rights and abolition falls for a Southern man visiting her father's hoopskirt business.",
+  "mexican-hayride": "An American con man on the run from the law in Mexico gets tangled up with a female bullfighter and the customs official determined to catch him.",
+  "carousel": "A carnival barker's whirlwind romance with a young millworker leads to marriage and hardship, and after his death, a chance to make amends with the daughter he left behind.",
 };
 // Returns a show's premise sentence, or null if none exists yet. A rare
 // per-show correction can be set on the override record's `premiseOverride`

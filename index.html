@@ -369,17 +369,27 @@
      pins the icon row to the bottom of every card uniformly, regardless of
      how many lines the title/credits text above it wrapped to. */
   .cap-icons{ font-size:15px; letter-spacing:2px; white-space:nowrap; margin-top:auto; }
-  /* "Performed in it" corner badge (brought back 2026-06-28, plain-letter
-     instead of the old 🎭 emoji it replaces — the no-decorative-emoji rule is
-     locked, this is a plain mark in the same spirit as ✕/▾/▸/★/✓/⚠/←).
-     Pinned to the card's own bottom-right corner via position:absolute,
-     deliberately apart from .cap-icons (which stays left-aligned) rather than
-     joining that row, per Cameron's request that it read as a separate fact
-     about the show, not a fifth capacity icon. */
-  .performed-badge{
+  /* Shared bottom-right corner cluster (build 2026-07-01f) — holds the
+     "performed in it" P badge and/or the "on loop" badge as flex row
+     children instead of each being independently position:absolute and
+     competing for the same corner. DOM order controls left-to-right order:
+     P first, loop badge second, so P always reads to the left of the loop
+     badge when both are present, per spec. */
+  .lib-corner-badges{
     position:absolute;
     bottom:10px;
     right:10px;
+    display:flex;
+    align-items:center;
+    gap:4px;
+  }
+  /* "Performed in it" badge (brought back 2026-06-28, plain-letter instead of
+     the old 🎭 emoji it replaces — the no-decorative-emoji rule is locked,
+     this is a plain mark in the same spirit as ✕/▾/▸/★/✓/⚠/←). Deliberately
+     apart from .cap-icons (which stays left-aligned) rather than joining that
+     row, per Cameron's request that it read as a separate fact about the
+     show, not a fifth capacity icon. */
+  .performed-badge{
     width:16px;
     height:16px;
     border-radius:50%;
@@ -392,6 +402,35 @@
     font-weight:700;
     color:var(--chalk-dim);
     background:var(--stage);
+  }
+  /* "On Loop" badge (build 2026-07-01f) — the one deliberate, explicit
+     exception to the app's no-decorative-emoji rule, scoped ONLY to this
+     badge (Cameron's call: it appears on at most 3 shows at a time, and is
+     meant to read as a quick visual, not a label). A pill rather than a
+     circle since "🔁×N" needs more width than a single letter. Two states:
+     .active (currently on loop right now) gets a filled background and full-
+     brightness text/border; without .active (history only — looped before,
+     not right now) gets the same muted treatment the P badge already uses.
+     Never uses amber — amber is reserved for show titles throughout the app. */
+  .loop-badge{
+    height:16px;
+    padding:0 6px;
+    border-radius:8px;
+    border:1px solid var(--panel-line);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-family:var(--font-mono);
+    font-size:9px;
+    font-weight:700;
+    color:var(--chalk-dim);
+    background:var(--stage);
+    white-space:nowrap;
+  }
+  .loop-badge.active{
+    color:var(--chalk);
+    border-color:var(--chalk-dim);
+    background:var(--panel-line);
   }
 
   /* ---------- library subsections: someday / scheduled / don't-care ---------- */
@@ -574,7 +613,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-01e</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-01f</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1048,6 +1087,13 @@ const VERDICTS = [
   {key:'noTake', label:'No Strong Take'},
   {key:'didntBuy', label:"Didn't Buy It"},
 ];
+// "On Loop" (build 2026-07-01f): a lightweight, temporary "currently
+// obsessing over this" flag — deliberately NOT part of the collaborator/
+// comeback-show math (that's built to reward stable, accumulated evidence;
+// a flag that can flip week to week doesn't belong in it). Picked, not
+// derived — same starting-guess status as the other small tunable constants
+// in this file (WILSON_Z, LIVE_REPEAT_WEIGHT, etc.).
+const MAX_ON_LOOP = 3;
 
 /* ============================================================
    STATE + STORAGE
@@ -1172,6 +1218,41 @@ function setDontcare(id, reason){
   o.status = 'dontcare';
   o.dontcareReason = (reason||'').trim();
   o.scheduledDate = null;
+  saveData();
+}
+// Returns every show currently flagged onLoop, sorted oldest-first by
+// onLoopSince — that ordering is what toggleOnLoop() below relies on to find
+// "the one bumped when a 4th is toggled on."
+function getActiveLoopShows(){
+  return Object.keys(DATA.overrides)
+    .filter(id => DATA.overrides[id].onLoop)
+    .sort((a,b) => (DATA.overrides[a].onLoopSince||0) - (DATA.overrides[b].onLoopSince||0));
+}
+// Toggles a show's "on loop" flag. Turning ON: if MAX_ON_LOOP is already
+// active elsewhere, silently bumps the oldest one (by onLoopSince) off
+// first — Cameron's call, no confirm/alert, since he's already forgotten
+// what was on loop 3 loops ago by the time a 4th comes up. loopCount ticks
+// up once per activation (not per deactivation) so it always fires exactly
+// once per "loop era," regardless of whether that era ends manually or via
+// auto-bump. Turning OFF: no confirm either (matches the calendar-remove
+// precedent) — loopCount is untouched, since it's a lifetime history count,
+// not a reflection of current state.
+function toggleOnLoop(id){
+  const o = ensureOverride(id);
+  if(o.onLoop){
+    o.onLoop = false;
+    o.onLoopSince = null;
+  } else {
+    const active = getActiveLoopShows().filter(x=>x!==id);
+    if(active.length >= MAX_ON_LOOP){
+      const oldest = active[0];
+      DATA.overrides[oldest].onLoop = false;
+      DATA.overrides[oldest].onLoopSince = null;
+    }
+    o.onLoop = true;
+    o.onLoopSince = Date.now();
+    o.loopCount = (o.loopCount||0) + 1;
+  }
   saveData();
 }
 function addExperience(id, exp){
@@ -2124,9 +2205,16 @@ function renderLibrary(){
   // leftover filter is always visible, and there's an explicit way to clear
   // it without needing to fully reload the app.
   const filtersActive = !!(libFilter.text || libFilter.cap);
+  // Shows-vs-experiences count (build 2026-07-01f) — deliberately reads off
+  // the FULL library, not the currently filtered/searched view, so this
+  // top-line number stays stable while search/capacity filters are in use
+  // rather than jumping around mid-search.
+  const allLoggedShows = Object.values(allShows()).filter(s=>getState(s.id).experiences.length>0);
+  const totalExperiences = allLoggedShows.reduce((sum,s)=>sum+getState(s.id).experiences.length, 0);
   el.innerHTML = `
     <h2 class="section-title">Library</h2>
     <p class="section-sub">everything you've made a call on, plus search to add anything new</p>
+    <p class="section-sub" style="margin-top:-4px;font-size:11px;">${allLoggedShows.length} show${allLoggedShows.length===1?'':'s'} · ${totalExperiences} experience${totalExperiences===1?'':'s'} logged</p>
     <div class="lib-controls">
       <input type="text" id="libSearch" placeholder="search title..." value="${escapeHtml(libFilter.text)}" style="flex:1;min-width:160px;font-family:var(--font-body);padding:8px 10px;border-radius:4px;border:1px solid var(--panel-line);background:var(--panel);color:var(--chalk);">
       ${filtersActive ? '<button class="btn ghost-dark small" id="libClearFilters">✕ clear filters</button>' : ''}
@@ -2192,12 +2280,24 @@ function renderLibList(){
     const caps = CAPACITIES.map(c=>c.key).filter(k=> st.experiences.some(e=>e.capacity===k));
     const capIcons = caps.map(c=> (CAPACITIES.find(x=>x.key===c)||{}).icon || '').join(' ');
     const performedFlag = st.experiences.some(e=>e.performedIn);
+    // "On Loop" badge (build 2026-07-01f): only rendered at all once loopCount
+    // is 1+ — a show never looped shows nothing, per spec. Active state (still
+    // actually on loop right now) gets the bold/filled treatment; a show with
+    // history but not currently active gets the muted treatment the P badge
+    // already uses. Both live in one shared corner cluster (.lib-corner-badges)
+    // so P — when present — always sits to the left of the loop badge, per
+    // Cameron's spec, rather than each being independently absolute-positioned
+    // and fighting for the same corner.
+    const loopCount = st.loopCount || 0;
+    const loopBadge = loopCount>0
+      ? `<span class="loop-badge${st.onLoop?' active':''}" title="${st.onLoop?'currently on loop':'looped before'} — ${loopCount} time${loopCount===1?'':'s'}">🔁×${loopCount}</span>`
+      : '';
     return `
       <div class="lib-card" data-show="${s.id}">
         <div class="title">${escapeHtml(s.title)}</div>
         <div class="credits">${s.year?s.year+' · ':''}${s.team.map(escapeHtml).join(', ')}</div>
         <div class="cap-icons">${capIcons}</div>
-        ${performedFlag ? '<span class="performed-badge" title="performed in this one">P</span>' : ''}
+        ${(performedFlag || loopBadge) ? `<div class="lib-corner-badges">${performedFlag?'<span class="performed-badge" title="performed in this one">P</span>':''}${loopBadge}</div>` : ''}
       </div>
     `;
   }).join('');
@@ -2398,6 +2498,38 @@ function wireLdCalendar(back, showId){
   };
 }
 
+// "On Loop" toggle for Library's detail popup (build 2026-07-01f) — same
+// refresh-in-place pattern as ldCalendarHtml/wireLdCalendar just above.
+// Deliberately lives here, not inside the experience-logging form: it's a
+// show-level "what am I into right now" fact, not tied to any one specific
+// logged experience, so it sits alongside the other show-level controls
+// (calendar, edit credits) rather than being buried in a form you might not
+// reopen for weeks while genuinely mid-obsession with something.
+function ldLoopHtml(showId){
+  const st = getState(showId);
+  // Gated to shows with at least one logged experience — the detail popup is
+  // also reachable from the "scheduled" and "pending custom shows" sidelists,
+  // neither of which implies anything's actually been experienced yet, and
+  // "on loop" only makes sense for something you've already started.
+  if(st.experiences.length===0) return '';
+  const count = st.loopCount || 0;
+  const countNote = count>0 ? ` <span style="color:var(--chalk-dim);">(looped ${count} time${count===1?'':'s'} total)</span>` : '';
+  return `<div class="ld-loop-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12px;">
+    <button class="btn ${st.onLoop?'amber':'ghost-dark'} small" id="ld-loop-toggle">${st.onLoop?'🔁 On Loop — tap to end':'🔁 Mark as on loop'}</button>
+    ${countNote}
+  </div>`;
+}
+function wireLdLoop(back, showId){
+  const host = back.querySelector('#ld-loop');
+  if(!host) return;
+  const toggleBtn = host.querySelector('#ld-loop-toggle');
+  if(toggleBtn) toggleBtn.onclick = ()=>{
+    toggleOnLoop(showId);
+    host.innerHTML = ldLoopHtml(showId);
+    wireLdLoop(back, showId);
+  };
+}
+
 // Renders #libDetailExp inside an open detail popup and wires whatever it
 // contains — static entries, or one experience's edit form if editingExpId
 // matches it (see expListOrEditHtml/wireExpListOrEdit below). Pulled out of
@@ -2422,6 +2554,7 @@ function openLibDetail(showId){
       <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;" id="ld-credits">${show.year?show.year+' · ':''}${show.team.map(escapeHtml).join(', ')||(show.custom?'creative team unknown':'')}</p>
       <div id="ld-tags">${show.tags && show.tags.length ? `<div class="tags" style="margin-bottom:6px;">${show.tags.map(t=>`<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>` : ''}</div>
       <div id="ld-calendar" style="margin-bottom:8px;">${ldCalendarHtml(showId)}</div>
+      <div id="ld-loop" style="margin-bottom:8px;">${ldLoopHtml(showId)}</div>
       <div id="libDetailExp"></div>
       <div class="btnrow">
         <button class="btn amber" id="ld-add">+ log an experience</button>
@@ -2435,6 +2568,7 @@ function openLibDetail(showId){
   `;
   document.body.appendChild(back);
   wireLdCalendar(back, showId);
+  wireLdLoop(back, showId);
   refreshLibDetailExp(back, showId);
   back.querySelector('#ld-close').onclick = ()=>{ editingExpId = null; back.remove(); renderLibrary(); };
   back.querySelector('#ld-add').onclick = ()=>{
@@ -3688,6 +3822,12 @@ async function runLiveComputerFriend(){
   // signal and is unaffected by this correction.
   const loggedTitles = loggedShows.map(s=>s.title);
   const anchors = DATA.anchors.map(a=>a.name);
+  // "On Loop" (build 2026-07-01f) — context only, deliberately not fed into
+  // any of the weighted math above (collaborator/comeback stats are built to
+  // reward stable, accumulated evidence; a flag that can flip week to week
+  // doesn't belong there). This is purely a snapshot of current headspace for
+  // the model's reasoning — Cameron's framing, not a ranking signal.
+  const activeLoopTitles = getActiveLoopShows().map(id => getShow(id)).filter(Boolean).map(s=>s.title);
 
   const system = `You are "Computer Friend," a blunt, no-flattery analysis voice inside a personal musical-theater tracking app called The Underscore. You read the user's own logged taste data — provided below — and tell them what it actually says, citing specific shows, collaborators, and numbers by name.
 Rules:
@@ -3697,6 +3837,7 @@ Rules:
 - Treat a show logged 3+ times with nothing rated below a 4 as a real, strong favorite in its own right — even if its creative team doesn't otherwise appear among the top collaborators. A one- or two-show creative team can legitimately never clear the collaborator-level bar, so don't undersell this signal just because it's tied to a single title.
 - The collaborator list below is already filtered to people with a real, qualifying track record and ranked by how well-supported that track record is, not just by raw percentage — a name with fewer logged shows needed a cleaner record to make this list at all. Cite the literal counts and percentage given, don't second-guess or re-derive them.
 - A Live experience marked "seen live more than once" in the breakdown below counts as 2 toward the collaborator and comeback-show totals, not 1 — that's intentional weighting, not a discrepancy to flag if the totals don't match a literal count of breakdown lines.
+- The "currently on loop" list below is a real-time snapshot of what's being actively obsessed over right now, separate from anything in the logged breakdown above — it's not weighted into any stat, but it's a legitimate, fresh signal of present-tense taste. Use it if relevant to what you're recommending; don't treat it as equivalent to a rated, logged experience.
 - Never recommend anything on the "don't care" list provided below.
 - Where a don't-care entry includes a stated reason, use it to reason about whether a new recommendation risks the same objection (e.g. premise-level, creator-level, genre-level) — but the reason is never grounds to recommend the don't-care show itself.
 - Never recommend anything on the "already logged" list provided below.
@@ -3722,6 +3863,8 @@ Already logged, do not recommend: ${loggedTitles.join(', ') || '(none)'}
 Don't-care list, never recommend: ${dontcareEntries.join(', ') || '(none)'}
 
 Non-theater anchors, use for cross-medium reasoning if relevant: ${anchors.join(', ') || '(none logged)'}
+
+Currently on loop (actively obsessing over right now, listening on repeat — a real-time headspace signal, weigh it accordingly): ${activeLoopTitles.join(', ') || '(nothing right now)'}
 
 What does this data say about my taste, and what should I check out next?`;
 

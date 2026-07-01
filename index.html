@@ -574,7 +574,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-30h</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-30i</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -2808,15 +2808,76 @@ function expWeight(e){
 // collaborator-math accumulation point (the stat card, Quick Check, live
 // Computer Friend) plus getComebackShows(), so LIVE_REPEAT_WEIGHT only has
 // to be applied in one place instead of copy-pasted across call sites.
+// Null-verdict exclusion (2026-06-30i): an experience with no verdict at all
+// (verdict===null, meaning the chip was never tapped when logging) is
+// skipped entirely here — it contributes nothing to totalWeight, boughtIn,
+// or the rating sum. This used to silently count as a soft "no" (it fell
+// through both the boughtIn check and had no bearing on the rate either
+// way, but still inflated totalWeight, which quietly pulled a creator's
+// rate down). "No Strong Take" is a real, explicit verdict choice and is
+// completely unaffected by this — only true null/undefined skips. As of
+// this build, Cameron's own logged data has zero null-verdict experiences
+// (192 of 192 have both a rating and a verdict), so this is a forward-
+// looking correctness fix, not a change to any number today.
 function weightedExpStats(experiences){
   let ratingSum=0, ratingWeight=0, boughtInWeight=0, totalWeight=0;
   experiences.forEach(e=>{
+    if(e.verdict==null) return;
     const w = expWeight(e);
     totalWeight += w;
     if(e.verdict==='boughtIn' || e.verdict==='allIn') boughtInWeight += w;
     if(e.rating!=null){ ratingSum += e.rating*w; ratingWeight += w; }
   });
   return {ratingSum, ratingWeight, boughtInWeight, totalWeight};
+}
+
+// Show-centric collaborator accumulation (2026-06-30i). Problem this fixes:
+// the three collaborator-math call sites below used to add a show's FULL
+// weightedExpStats straight into a creator's running total — so a show
+// logged 4 different ways (live + recording + pro-shot + movie) contributed
+// 4x the evidence of a show logged once, even though it's one opinion about
+// one show, examined four times, not four independent data points about the
+// creator. That inflated both the Wilson confidence score AND the displayed
+// avg rating for anyone with heavily-multi-logged shows in their catalog.
+// Fix: every show now contributes AT MOST one unit of scoring evidence and
+// one avg-rating data point, no matter how many experiences it has —
+//   - scoreTotal / scoreBoughtIn feed wilsonLowerBound() and the 50%
+//     qualifying floor. A show's own internal experiences are collapsed
+//     into one fractional "how positively did this show land" value
+//     (boughtInWeight/totalWeight, e.g. 0.75 for 3-of-4-positive) rather
+//     than a flat yes/no, so nuance within a show (loved it live, hated the
+//     movie) survives — it just can't multiply the show's weight relative
+//     to every other show.
+//   - ratingSum / ratingWeight (the displayed "X/5 enjoyment avg") get the
+//     same treatment: one show contributes its own average rating once,
+//     not once per experience.
+// rawBoughtIn / rawTotal are UNCHANGED from the old behavior on purpose —
+// they still sum every experience's weight directly. This is what feeds
+// the card's literal "X of Y experiences bought-in" text, which is a
+// deliberately raw, checkable count (see the 2026-06-30d/e display-
+// simplification comments below) and was never the thing that was
+// inflating the ranking — only the ranking/avg math needed the show cap.
+function accumulateShowIntoCollab(map, key, names, show, wstats){
+  if(!map[key]) map[key] = {
+    names,
+    rawBoughtIn:0, rawTotal:0,
+    scoreBoughtIn:0, scoreTotal:0,
+    ratingSum:0, ratingWeight:0,
+    shows:new Set()
+  };
+  const b = map[key];
+  b.shows.add(show.title);
+  b.rawBoughtIn += wstats.boughtInWeight;
+  b.rawTotal += wstats.totalWeight;
+  if(wstats.totalWeight>0){
+    b.scoreTotal += 1;
+    b.scoreBoughtIn += (wstats.boughtInWeight / wstats.totalWeight);
+  }
+  if(wstats.ratingWeight>0){
+    b.ratingSum += (wstats.ratingSum / wstats.ratingWeight);
+    b.ratingWeight += 1;
+  }
+  return b;
 }
 
 function getComebackShows(loggedShows){
@@ -2854,12 +2915,8 @@ function renderVibe(){
     const wstats = weightedExpStats(st.experiences);
     creditUnitsForShow(s.team, duoMap).forEach(unit=>{
       const key = unit.displayName;
-      if(!collabMap[key]) collabMap[key] = {names:unit.names, ratingSum:0, ratingWeight:0, boughtIn:0, total:0, shows:new Set(), breakdown:{}};
-      collabMap[key].ratingSum += wstats.ratingSum;
-      collabMap[key].ratingWeight += wstats.ratingWeight;
-      collabMap[key].boughtIn += wstats.boughtInWeight;
-      collabMap[key].total += wstats.totalWeight;
-      collabMap[key].shows.add(s.title);
+      const bucket = accumulateShowIntoCollab(collabMap, key, unit.names, s, wstats);
+      if(!bucket.breakdown) bucket.breakdown = {};
       // Per-show experience list, for the audit popup. A show with 2+ logged
       // experiences (e.g. listened AND watched a bootleg) feeds 2+ data
       // points into this person's avg/bought-in numbers even though it's
@@ -2876,15 +2933,22 @@ function renderVibe(){
   });
   const collabStats = Object.entries(collabMap)
     .map(([name,v])=>{
+      // avg and boughtInRate are show-centric (2026-06-30i) — see
+      // accumulateShowIntoCollab above. boughtInCount/totalCount stay on the
+      // raw, un-capped experience totals on purpose: that's the literal
+      // "X of Y experiences" text on the card, a deliberately checkable raw
+      // count, distinct from the scoring math that decides rank/qualifying.
       const avg = v.ratingWeight ? (v.ratingSum/v.ratingWeight) : null;
-      const boughtInRate = v.total ? (v.boughtIn/v.total) : 0;
-      const boughtInCount = Math.round(v.boughtIn);
-      const totalCount = Math.round(v.total);
-      const confidence = wilsonLowerBound(v.boughtIn, v.total);
+      const boughtInRate = v.scoreTotal ? (v.scoreBoughtIn/v.scoreTotal) : 0;
+      const boughtInCount = Math.round(v.rawBoughtIn);
+      const totalCount = Math.round(v.rawTotal);
+      const confidence = wilsonLowerBound(v.scoreBoughtIn, v.scoreTotal);
       const showBreakdown = Object.entries(v.breakdown).map(([showId,b])=>({showId, title:b.title, experiences:b.experiences}));
       return {name, names:v.names, avg, boughtInRate, boughtInCount, totalCount, confidence, showCount: v.shows.size, showTitles: [...v.shows], showBreakdown};
     })
-    // need 2+ DIFFERENT shows AND a real bought-in rate of ≥50% — a plain,
+    // need 2+ DIFFERENT shows AND a real bought-in rate of ≥50%, both now
+    // read off the same show-centric rate the Wilson score itself uses
+    // (2026-06-30i) — a plain,
     // checkable floor on the literal numbers. Ranking among everyone who
     // clears it is handled separately, below, by the confidence score.
     .filter(c=>c.showCount>=2 && c.boughtInRate>=0.5)
@@ -2918,7 +2982,7 @@ function renderVibe(){
       '',
       collabStats.length ? collabStats.map((c,i)=>`
         <div class="collab-row"><span><button class="collab-name-btn" data-collab-idx="${i}">${escapeHtml(c.name)}</button> <span style="color:var(--chalk-dim)">(${c.showCount} show${c.showCount===1?'':'s'})</span>${c.names.length===2?`<button class="duo-split-btn" data-duo-split="${i}">not a duo</button>`:''}</span>
-        <span>${c.boughtInCount} of ${c.totalCount} experiences bought-in or All In${c.avg?' · '+c.avg.toFixed(1)+'/5 avg':''}</span></div>
+        <span>${c.boughtInCount} of ${c.totalCount} experiences bought-in or All In${c.avg?' · '+c.avg.toFixed(1)+'/5 enjoyment avg':''}</span></div>
       `).join('') : '<p style="font-family:var(--font-mono);font-size:12px;color:var(--chalk-dim);">Log a few experiences and this fills in.</p>'
     )}
 
@@ -3049,7 +3113,7 @@ function openCollabShowsModal(c){
   back.innerHTML = `
     <div class="modal">
       <h2 class="section-title" style="color:var(--ink)">${escapeHtml(c.name)}</h2>
-      <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">${c.showCount} show${c.showCount===1?'':'s'} behind this stat · ${c.boughtInCount} of ${c.totalCount} experiences bought-in or All In${c.avg?' · '+c.avg.toFixed(1)+'/5 avg':''}</p>
+      <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">${c.showCount} show${c.showCount===1?'':'s'} behind this stat · ${c.boughtInCount} of ${c.totalCount} experiences bought-in or All In${c.avg?' · '+c.avg.toFixed(1)+'/5 enjoyment avg':''}</p>
       <p style="font-family:var(--font-mono);font-size:10px;color:var(--chalk-dim);margin-top:-4px;">Counted per logged experience, not per show — a show logged more than once (e.g. listened AND watched) contributes more than one data point below.</p>
       <div>${breakdownHtml}</div>
       ${c.names.length===2 ? `<div class="btnrow" style="margin-top:10px;"><button class="btn ghost-dark small" id="collabSplitDuoBtn">not actually a duo — split into two</button></div>` : ''}
@@ -3101,31 +3165,27 @@ function runLocalVibeCheck(){
     const wstats = weightedExpStats(st.experiences);
     creditUnitsForShow(s.team, duoMap).forEach(unit=>{
       const key = unit.displayName;
-      if(!collabMap[key]) collabMap[key] = {names:unit.names, ratingSum:0, ratingWeight:0, boughtIn:0, total:0, shows:new Set()};
-      collabMap[key].ratingSum += wstats.ratingSum;
-      collabMap[key].ratingWeight += wstats.ratingWeight;
-      collabMap[key].boughtIn += wstats.boughtInWeight;
-      collabMap[key].total += wstats.totalWeight;
-      collabMap[key].shows.add(s.title);
+      accumulateShowIntoCollab(collabMap, key, unit.names, s, wstats);
     });
   });
   const collabStats = Object.entries(collabMap)
     .map(([name,v])=>{
+      // show-centric avg/rate (2026-06-30i) — see accumulateShowIntoCollab.
       const avg = v.ratingWeight ? v.ratingSum/v.ratingWeight : null;
-      const boughtInRate = v.total ? v.boughtIn/v.total : 0;
+      const boughtInRate = v.scoreTotal ? v.scoreBoughtIn/v.scoreTotal : 0;
       return {
         name,
         names: v.names,
         avg,
         boughtInRate,
-        boughtInCount: Math.round(v.boughtIn),
-        totalCount: Math.round(v.total),
-        confidence: wilsonLowerBound(v.boughtIn, v.total),
+        boughtInCount: Math.round(v.rawBoughtIn),
+        totalCount: Math.round(v.rawTotal),
+        confidence: wilsonLowerBound(v.scoreBoughtIn, v.scoreTotal),
         showCount: v.shows.size,
         showTitles: [...v.shows],
       };
     })
-    // need 2+ DIFFERENT shows AND a real bought-in rate ≥50%
+    // need 2+ DIFFERENT shows AND a real bought-in rate ≥50% (show-centric)
     .filter(c=>c.showCount>=2 && c.boughtInRate>=0.5)
     .sort((a,b)=> b.confidence - a.confidence);
 
@@ -3455,31 +3515,27 @@ async function runLiveComputerFriend(){
     const wstats = weightedExpStats(st.experiences);
     creditUnitsForShow(s.team, duoMap).forEach(unit=>{
       const key = unit.displayName;
-      if(!collabMap[key]) collabMap[key] = {names:unit.names, ratingSum:0, ratingWeight:0, boughtIn:0, total:0, shows:new Set()};
-      collabMap[key].ratingSum += wstats.ratingSum;
-      collabMap[key].ratingWeight += wstats.ratingWeight;
-      collabMap[key].boughtIn += wstats.boughtInWeight;
-      collabMap[key].total += wstats.totalWeight;
-      collabMap[key].shows.add(s.title);
+      accumulateShowIntoCollab(collabMap, key, unit.names, s, wstats);
     });
   });
   const collabStats = Object.entries(collabMap)
     .map(([name,v])=>{
+      // show-centric avg/rate (2026-06-30i) — see accumulateShowIntoCollab.
       const avg = v.ratingWeight ? +(v.ratingSum/v.ratingWeight).toFixed(2) : null;
-      const boughtInRate = v.total ? +(v.boughtIn/v.total).toFixed(2) : 0;
+      const boughtInRate = v.scoreTotal ? +(v.scoreBoughtIn/v.scoreTotal).toFixed(2) : 0;
       return {
         name,
         names: v.names,
         avg,
         boughtInRate,
-        boughtInCount: Math.round(v.boughtIn),
-        totalCount: Math.round(v.total),
-        confidence: wilsonLowerBound(v.boughtIn, v.total),
+        boughtInCount: Math.round(v.rawBoughtIn),
+        totalCount: Math.round(v.rawTotal),
+        confidence: wilsonLowerBound(v.scoreBoughtIn, v.scoreTotal),
         showCount: v.shows.size,
         showTitles: [...v.shows],
       };
     })
-    // need 2+ DIFFERENT shows AND a real bought-in rate ≥50%
+    // need 2+ DIFFERENT shows AND a real bought-in rate ≥50% (show-centric)
     .filter(c=>c.showCount>=2 && c.boughtInRate>=0.5)
     .sort((a,b)=> b.confidence - a.confidence);
 

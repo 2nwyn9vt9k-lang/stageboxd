@@ -199,6 +199,14 @@
     letter-spacing:.3px;
   }
   .ticket .tags{ margin-top:6px; }
+  .ticket .premise{
+    font-family:var(--font-mono);
+    font-size:11px;
+    font-style:italic;
+    color:#7a756d;
+    line-height:1.45;
+    margin-top:8px;
+  }
   .tag-pill{
     display:inline-block;
     font-family:var(--font-mono);
@@ -613,7 +621,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-01f</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-01g</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1061,6 +1069,38 @@ RAW_SEED.forEach(([title,year,team,tags,roles])=>{
   SEED_SHOWS[id] = {id, title, year, team, tags, roles: roles || {}, custom:false};
 });
 
+/* ---- PLOT PREMISES (build 2026-07-01g): a one-sentence, neutral plot
+   description per show — "what happens," not "what I thought of it." Distinct
+   from the existing per-experience `blurb` field (a personal take logged
+   against one specific viewing), which is why this one is named `premise`
+   rather than reusing that word. Every show gets a plain premise stated,
+   including ones whose whole thing hinges on a withheld twist — no
+   case-by-case spoiler-flagging, per Cameron's explicit call.
+   Scoped to seed shows only for now (custom/AI-suggested shows are out of
+   scope until a future pass). Storage is intentionally NOT baked into
+   RAW_SEED's tuple shape the way `roles` is — this is being authored in
+   ~30-40-show chunks across many sessions, and appending new keys to this
+   separate map is a much smaller, safer diff each time than re-touching a
+   397-row tuple array. Keyed by show id (slugified title), same as
+   SEED_SHOWS itself. Empty in this build on purpose — this ships the
+   schema and rendering only; content fills in over subsequent sessions.
+   See the writeup's "Plot premises" section for coverage/priority order. */
+const SEED_PREMISES = {
+};
+// Returns a show's premise sentence, or null if none exists yet. A rare
+// per-show correction can be set on the override record's `premiseOverride`
+// field (no UI for this yet — direct data edit only), taking precedence over
+// the seed default, same precedence relationship `roleOverrides` has with
+// `show.roles`. Custom shows have no seed layer, so this always returns
+// whatever's on their own override, if anything.
+function getPremise(show){
+  if(!show) return null;
+  const override = (DATA.overrides[show.id] || {}).premiseOverride;
+  if(override) return override;
+  if(show.custom) return null;
+  return SEED_PREMISES[show.id] || null;
+}
+
 const CAPACITIES = [
   {key:'live', label:'Seen Live', icon:'🎟️'},
   {key:'recording', label:'Listened (Recording)', icon:'💿'},
@@ -1492,6 +1532,7 @@ function renderReviewCard(show){
       <div class="show-title">${escapeHtml(show.title)}</div>
       <div class="credits">${show.year?show.year+' · ':''}${show.team.map(escapeHtml).join(', ')||'creative team unknown'}</div>
       <div class="tags">${show.tags.map(t=>`<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>
+      ${(()=>{ const premise = getPremise(show); return premise ? `<div class="premise">${escapeHtml(premise)}</div>` : ''; })()}
       <div class="perf"></div>
       <div id="reviewBody"></div>
     </div>

@@ -574,7 +574,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-01a</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-01b</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1045,8 +1045,8 @@ const VERDICTS = [
   {key:'allIn', label:'All In'},
   {key:'boughtIn', label:'Bought In'},
   {key:'mixed', label:'Mixed'},
-  {key:'didntBuy', label:"Didn't Buy It"},
   {key:'noTake', label:'No Strong Take'},
+  {key:'didntBuy', label:"Didn't Buy It"},
 ];
 
 /* ============================================================
@@ -2814,21 +2814,72 @@ function expWeight(e){
 // or the rating sum. This used to silently count as a soft "no" (it fell
 // through both the boughtIn check and had no bearing on the rate either
 // way, but still inflated totalWeight, which quietly pulled a creator's
-// rate down). "No Strong Take" is a real, explicit verdict choice and is
-// completely unaffected by this — only true null/undefined skips. As of
-// this build, Cameron's own logged data has zero null-verdict experiences
-// (192 of 192 have both a rating and a verdict), so this is a forward-
-// looking correctness fix, not a change to any number today.
+// rate down). As of this build, Cameron's own logged data has zero
+// null-verdict experiences (192 of 192 have both a rating and a verdict),
+// so this is a forward-looking correctness fix, not a change to any number
+// today. NOTE: "No Strong Take" is NOT covered by this paragraph — it's a
+// real, explicit verdict choice, distinct from null, but as of build
+// 2026-07-01b it's deliberately excluded from the SCORE fields below for a
+// different reason (see VERDICT_POINTS). It still counts toward the RAW
+// fields exactly as before, unchanged.
+//
+// Verdict-intensity weighting (2026-07-01b): boughtInWeight/totalWeight
+// (the RAW fields) keep their original binary meaning on purpose — All In
+// and Bought In each add a full 1, everything else (including Mixed and
+// No Strong Take) adds 0 to the numerator but still counts toward the
+// denominator. This is what feeds the card's literal "X of Y experiences
+// bought-in or All In" text and must stay a plain, checkable count,
+// unaffected by ranking-math changes — same raw-stays-raw principle as the
+// show-centric (30i) and book-only (2026-07-01a) fixes before it.
+// scorePositive/scoreWeight are a SEPARATE pair of fields, used only by the
+// invisible confidence/ranking math (accumulateShowIntoCollab's
+// scoreBoughtIn/scoreTotal, which feed wilsonLowerBound() and the 50%
+// qualifying floor). Here, each verdict contributes a fractional point
+// value instead of a flat 1 or 0 — VERDICT_POINTS below — so an All In
+// counts for more evidence of "buying into" a collaborator than a
+// merely-liked Bought In, and a genuinely Mixed reaction sits at the true
+// midpoint rather than scoring identical to an active Didn't Buy It.
+// No Strong Take is excluded from scoreWeight entirely (not scored at 0 —
+// left out of the denominator too), the same way a null verdict already
+// is: semantically it isn't a point ON the like/dislike axis at all ("I
+// have no read on this"), so it shouldn't count as evidence for or against
+// a collaborator. Verified against Cameron's real backup: zero of 192
+// logged experiences currently use No Strong Take, so this is a
+// forward-looking correctness choice, not a change to any number today —
+// same status as the null-verdict paragraph above.
+// Values picked, not derived — same starting-guess status as WILSON_Z /
+// BOOK_ONLY_WEIGHT / LIVE_REPEAT_WEIGHT. Didn't Buy It anchored at a hard 0
+// (Cameron confirmed: a genuine rejection, not a soft negative) and Mixed
+// anchored at the literal midpoint 0.5 (Cameron confirmed: genuinely mixed
+// feelings, not a euphemism for "meh") were both fixed points Cameron
+// specified directly; Bought In at 0.75 is the deliberate quarter-step gap
+// that does the actual work this fix was built for. Verified against
+// Cameron's real backup as of build 2026-07-01a: this moves Stephen
+// Sondheim from 5th (confidence 0.2820, 8 shows, 59.4% bought-in) to 2nd
+// (confidence 0.4001, 8 shows, 74.0% bought-in) on the collaborator
+// leaderboard, clearing Lin-Manuel Miranda and Cole Porter (both 0.3424)
+// and landing just under Betty Comden & Adolph Green (0.5101→0.4222 under
+// this same fix) — the exact relative ordering Cameron confirmed felt
+// right before any code was written. The qualifying pool (2+ shows, ≥50%
+// bought-in rate) also grows under this fix, from 20 to 24 collaborators,
+// since Mixed no longer automatically fails the 50% floor the way a flat
+// 0 did — reviewed with Cameron and confirmed not a concern.
+const VERDICT_POINTS = { allIn: 1, boughtIn: 0.75, mixed: 0.5, didntBuy: 0 };
 function weightedExpStats(experiences){
   let ratingSum=0, ratingWeight=0, boughtInWeight=0, totalWeight=0;
+  let scorePositive=0, scoreWeight=0;
   experiences.forEach(e=>{
     if(e.verdict==null) return;
     const w = expWeight(e);
     totalWeight += w;
     if(e.verdict==='boughtIn' || e.verdict==='allIn') boughtInWeight += w;
     if(e.rating!=null){ ratingSum += e.rating*w; ratingWeight += w; }
+    if(e.verdict!=='noTake'){
+      scoreWeight += w;
+      scorePositive += w * VERDICT_POINTS[e.verdict];
+    }
   });
-  return {ratingSum, ratingWeight, boughtInWeight, totalWeight};
+  return {ratingSum, ratingWeight, boughtInWeight, totalWeight, scorePositive, scoreWeight};
 }
 
 // Book-only credit discount (2026-07-01a). A name's (or duo unit's) tagged
@@ -2888,10 +2939,10 @@ function creditUnitWeight(names, show){
 //   - scoreTotal / scoreBoughtIn feed wilsonLowerBound() and the 50%
 //     qualifying floor. A show's own internal experiences are collapsed
 //     into one fractional "how positively did this show land" value
-//     (boughtInWeight/totalWeight, e.g. 0.75 for 3-of-4-positive) rather
-//     than a flat yes/no, so nuance within a show (loved it live, hated the
-//     movie) survives — it just can't multiply the show's weight relative
-//     to every other show.
+//     (scorePositive/scoreWeight — verdict-intensity weighted as of
+//     2026-07-01b, see weightedExpStats()) rather than a flat yes/no, so
+//     nuance within a show (loved it live, hated the movie) survives — it
+//     just can't multiply the show's weight relative to every other show.
 //   - ratingSum / ratingWeight (the displayed "X/5 enjoyment avg") get the
 //     same treatment: one show contributes its own average rating once,
 //     not once per experience.
@@ -2913,10 +2964,17 @@ function accumulateShowIntoCollab(map, key, names, show, wstats){
   b.shows.add(show.title);
   b.rawBoughtIn += wstats.boughtInWeight;
   b.rawTotal += wstats.totalWeight;
-  if(wstats.totalWeight>0){
+  // scoreBoughtIn/scoreTotal read off scorePositive/scoreWeight (verdict-
+  // intensity weighted, 2026-07-01b), NOT the raw boughtInWeight/totalWeight
+  // above — those two pairs deliberately diverge now. rawBoughtIn/rawTotal
+  // stay binary for the card's literal display text; scorePositive/
+  // scoreWeight feed the invisible confidence/ranking math a fractional
+  // "how positively did this show land" value per verdict instead of a
+  // flat yes/no. See weightedExpStats() for the full reasoning.
+  if(wstats.scoreWeight>0){
     const w = creditUnitWeight(names, show); // book-only discount (2026-07-01a)
     b.scoreTotal += w;
-    b.scoreBoughtIn += w * (wstats.boughtInWeight / wstats.totalWeight);
+    b.scoreBoughtIn += w * (wstats.scorePositive / wstats.scoreWeight);
   }
   if(wstats.ratingWeight>0){
     b.ratingSum += (wstats.ratingSum / wstats.ratingWeight);

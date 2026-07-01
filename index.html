@@ -574,7 +574,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-06-30i</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-01a</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -2831,6 +2831,50 @@ function weightedExpStats(experiences){
   return {ratingSum, ratingWeight, boughtInWeight, totalWeight};
 }
 
+// Book-only credit discount (2026-07-01a). A name's (or duo unit's) tagged
+// role on a SPECIFIC show — not a global label for the person — decides
+// whether that show contributes a full unit of ranking evidence or a
+// discounted fraction. If nobody in the credit unit has music or lyrics
+// tagged on this show, and at least one of them has an explicit book-only
+// tag (book:true, music:false, lyrics:false), the show counts for
+// BOOK_ONLY_WEIGHT instead of 1 in the invisible ranking math only — the
+// card's literal "X of Y experiences" text and the "N shows in common" count
+// are both untouched, same raw-stays-raw principle as the 30i show-centric
+// fix. Reasoning (Cameron, 2026-07-01): for this app specifically, a book
+// alone has never driven a rating/verdict above what the score itself did —
+// book credit is real credit, just structurally lighter evidence of "why I
+// loved this show" than music or lyrics are. Someone credited book-only on
+// one show and music/lyrics on another is only discounted on the show where
+// their tagged role is pure book — this is per-show, not a person-level
+// "book writer" label, since real credits drift across a career (Larry
+// Gelbart wrote book, not score, on Forum but composes elsewhere). A duo/
+// team credit unit gets full weight the instant ANY name in it has music or
+// lyrics tagged on that show — a book writer paired with their show's
+// composer isn't diluting anything; someone in the room wrote the score.
+// Missing or untagged role data is never penalized, only explicit
+// book-only data fires this — same conservative default the role-tagging
+// system already used everywhere else (see Known Limitations).
+// BOOK_ONLY_WEIGHT = 0.2 is picked, not derived — same starting-guess status
+// as WILSON_Z/DUO_THRESHOLD/LIVE_REPEAT_WEIGHT. It's set so ten loved
+// book-only shows produce roughly the same Wilson confidence as two loved
+// full-credit (music/lyrics) shows (~0.34 either way, verified against
+// Cameron's real data) — Cameron's own stated threshold for "if a book
+// writer goes that hard, let them earn a spot."
+const BOOK_ONLY_WEIGHT = 0.2;
+function creditUnitWeight(names, show){
+  const roles = getRoles(show);
+  const anyMusicOrLyrics = names.some(n=>{
+    const r = roles[n];
+    return r && (r.music || r.lyrics);
+  });
+  if(anyMusicOrLyrics) return 1;
+  const anyPureBook = names.some(n=>{
+    const r = roles[n];
+    return r && r.book && !r.music && !r.lyrics;
+  });
+  return anyPureBook ? BOOK_ONLY_WEIGHT : 1;
+}
+
 // Show-centric collaborator accumulation (2026-06-30i). Problem this fixes:
 // the three collaborator-math call sites below used to add a show's FULL
 // weightedExpStats straight into a creator's running total — so a show
@@ -2870,8 +2914,9 @@ function accumulateShowIntoCollab(map, key, names, show, wstats){
   b.rawBoughtIn += wstats.boughtInWeight;
   b.rawTotal += wstats.totalWeight;
   if(wstats.totalWeight>0){
-    b.scoreTotal += 1;
-    b.scoreBoughtIn += (wstats.boughtInWeight / wstats.totalWeight);
+    const w = creditUnitWeight(names, show); // book-only discount (2026-07-01a)
+    b.scoreTotal += w;
+    b.scoreBoughtIn += w * (wstats.boughtInWeight / wstats.totalWeight);
   }
   if(wstats.ratingWeight>0){
     b.ratingSum += (wstats.ratingSum / wstats.ratingWeight);

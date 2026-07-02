@@ -621,7 +621,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-02b</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-02c</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1198,6 +1198,43 @@ const SEED_PREMISES = {
   "mame": "A flamboyant, free-spirited Manhattan socialite takes in her orphaned young nephew and raises him with unconventional flair, weathering the Depression and disapproving in-laws along the way.",
   "sweet-charity": "A hopelessly romantic taxi dancer keeps getting used and discarded by the men she falls for, but keeps believing the next one might finally be the real thing.",
   "the-apple-tree": "Three unconnected one-act stories about desire and choice: Adam and Eve navigating life after Eden, a princess forced to decide her condemned lover's fate between two doors, and a chimney sweep magically transformed each night into a glamorous movie star.",
+
+  // Batch 4 (build 2026-07-02c): 1967-1974, chronological — continuing
+  // straight through the seed list the same way batches 1-3 did, no
+  // filtering by decided/undecided status, just working forward by year.
+  "hair": "A tribe of hippies in New York City embraces free love, drugs, and rock music while one member wrestles with whether to report for his Vietnam War draft induction.",
+  "hallelujah-baby": "A Black woman rises from working as a maid on a Southern plantation to stardom as a nightclub and pop singer, her story spanning six decades of the fight for equality while she and her friends never visibly age.",
+  "illya-darling": "A carefree, independent-minded prostitute in a Greek port town becomes the pet project of a priggish American scholar determined to civilize and educate her, with results neither of them expects.",
+  "you-re-a-good-man-charlie-brown": "A loosely connected series of vignettes follows Charlie Brown and his fellow Peanuts friends through an ordinary day of baseball, kite-flying, homework, and the everyday anxieties of childhood.",
+  "dames-at-sea": "A tap-dancing young hopeful fresh off the bus from Utah lands a spot in a struggling Broadway show, falls for a songwriting sailor, and gets her big break when the production is forced to relocate to a Navy battleship.",
+  "george-m": "A biographical revue traces the life and career of song-and-dance man George M. Cohan, from his vaudeville childhood through his rise as a Broadway star, producer, and patriotic songwriter.",
+  "promises-promises": "A lonely insurance clerk climbs the corporate ladder by lending his apartment to his philandering bosses for their affairs, then falls for the very woman one of them is using it to see.",
+  "the-happy-time": "A globe-trotting photographer returns to his French-Canadian hometown, rekindling an old romance and inspiring his star-struck teenage nephew to want to leave with him, much to his more conservative family's dismay.",
+  "zorba": "A reserved young writer travels to Crete to work a family mine and falls under the influence of Zorba, an exuberant, life-embracing older Greek man who teaches him to loosen his grip on convention.",
+  "1776": "As the Continental Congress debates independence from Britain in the sweltering summer of 1776, John Adams battles apathy, infighting, and the slavery question to secure the votes needed for the Declaration.",
+  "celebration": "On a symbolic New Year's Eve, a young orphan searching for the garden of his lost home clashes with a wealthy, jaded old man over the affections of a beautiful woman, in an allegorical battle between youth and corruption.",
+  "coco": "Legendary fashion designer Coco Chanel comes out of a fifteen-year retirement to relaunch her Paris fashion house, facing skeptical critics and financial ruin as she fights to prove she can still define the industry.",
+  "dear-world": "An eccentric, idealistic Parisian countess rallies her fellow eccentrics to stop a group of greedy businessmen from drilling for oil beneath the city and destroying the neighborhood she loves.",
+  "applause": "An aging but still-reigning Broadway star takes an ambitious young fan under her wing, only to watch the younger woman's ruthless ambition threaten to eclipse her own career and personal life.",
+  "company": "A single man in New York City turns 35 and spends his birthday reflecting, through visits with his married friends and a string of girlfriends, on whether he actually wants the commitment of marriage.",
+  "the-rothschilds": "In 18th-century Frankfurt, a Jewish moneylender confined to the city's restrictive ghetto builds a banking dynasty with his five sons, who spread across Europe's capitals to secure the family's fortune and fight for Jewish rights.",
+  "two-by-two": "Noah, the six-hundred-year-old patriarch chosen by God to build an ark and survive a great flood, navigates family squabbles among his sons and their wives as he tries to save his family and the world's animals.",
+  "ain-t-supposed-to-die-a-natural-death": "A series of stand-alone musical monologues gives voice to a range of characters living through the pain, humor, and struggle of Black urban street life.",
+  "follies": "Aging former Ziegfeld-style showgirls reunite for one last party in their soon-to-be-demolished theater, where two unhappy couples confront the choices and regrets of their pasts alongside the ghosts of their younger selves.",
+  "godspell": "A group of young disciples, gathered by a joyful, clown-like Jesus, act out parables and lessons through songs and games in what becomes an increasingly poignant countdown to the Crucifixion.",
+  "grease": "At Rydell High in the late 1950s, a working-class greaser and a wholesome girl he fell for over the summer navigate peer pressure, rival cliques, and the question of who has to change to make their romance work.",
+  "jesus-christ-superstar": "Told largely through the eyes of a conflicted Judas Iscariot, the final days of Jesus's ministry unfold as fame, political pressure, and his followers' expectations push toward his betrayal and crucifixion.",
+  "two-gentlemen-of-verona": "Two lifelong friends leave their small hometown for the big city, where one falls for the woman his friend loves and both must sort out loyalty, romantic rivalry, and disguise before they can end up with the right partners.",
+  "don-t-bother-me-i-can-t-cope": "A song-and-dance revue built around a small ensemble explores Black identity, resilience, and joy through loosely connected musical numbers rather than a single continuous story.",
+  "pippin": "A young prince searches for a life of meaning and extraordinary purpose beyond his royal father's shadow, guided (and manipulated) by a troupe of magical performers led by an enigmatic Leading Player.",
+  "sugar": "Two broke musicians who witness a mob hit go on the run disguised as women in an all-female band, and one of them falls for the band's ukulele-playing singer while trying not to blow his cover.",
+  "a-little-night-music": "Over one midsummer weekend at a country estate, a tangle of former and current lovers — including an aging actress, a lawyer still infatuated with her, and his unhappily married young wife — sort out who really belongs with whom.",
+  "raisin": "A working-class Black family on Chicago's South Side clashes over how to spend a life-insurance windfall, torn between a mother's dream of homeownership, a son's business ambitions, and a daughter's search for identity.",
+  "seesaw": "A buttoned-up Nebraska lawyer newly arrived in New York City falls for a free-spirited, financially struggling dancer, and the two try to make their mismatched romance work against the backdrop of the city.",
+  "lorelei": "A wealthy widow looks back on her younger days as a gold-digging showgirl who sailed to Paris with her best friend in pursuit of rich men, diamonds, and a marriage her fiancé's disapproving father needed convincing to allow.",
+  "mack-mabel": "Silent-film director Mack Sennett discovers and falls for aspiring actress Mabel Normand, building her into a star of his slapstick comedies even as his controlling nature and inability to commit slowly drive them apart.",
+  "over-here": "Two USO-singing sisters on a cross-country wartime train recruit a third voice to round out their act, unaware she's a Nazi spy, amid the homesick soldiers and wartime anxieties of the journey.",
+  "the-magic-show": "At a rundown roadside nightclub, a rebellious young illusionist trying to save the club with his act draws the owner's daughter into his orbit, testing what's real magic and what's just persuasion and misdirection.",
 };
 // Returns a show's premise sentence, or null if none exists yet. A rare
 // per-show correction can be set on the override record's `premiseOverride`

@@ -621,7 +621,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-02g</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-06a</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -4268,7 +4268,17 @@ async function runLiveComputerFriend(){
       const ratingText = (e.rating!==null && e.rating!==undefined) ? `${e.rating}/5` : 'no rating given';
       const performedTag = e.performedIn ? ', performed in this one' : '';
       const repeatTag = (e.capacity==='live' && e.repeatLive) ? ', seen live more than once' : '';
-      return `${capLabel}: ${ratingText}, ${verdictLabel}${performedTag}${repeatTag}`;
+      // Blurb + standout (build 2026-07-06): the user's own free-text reasoning
+      // behind the number, not a substitute for it — see the system prompt rule
+      // below that keeps this from becoming a second, uncited source of rating/
+      // verdict claims. Sent together, unfiltered by field: standout in practice
+      // holds a mix of trivia ("actor X was great") and real evaluative asides
+      // ("I think this one is better than the other one") with no reliable
+      // programmatic way to separate the two — the model reading it in context
+      // sorts signal from noise the same way it already has to elsewhere here.
+      const blurbTag = e.blurb ? ` [blurb: "${e.blurb}"]` : '';
+      const standoutTag = e.moment ? ` [standout: "${e.moment}"]` : '';
+      return `${capLabel}: ${ratingText}, ${verdictLabel}${performedTag}${repeatTag}${blurbTag}${standoutTag}`;
     });
     return `${s.title} — ${expLines.join('; ')}`;
   });
@@ -4296,6 +4306,7 @@ async function runLiveComputerFriend(){
 Rules:
 - No flattery, no hedging filler. Lead with the finding.
 - A full per-show breakdown — title, format, rating, verdict — is provided below for every logged experience. You may ONLY cite a specific rating or verdict if it appears literally in that breakdown. Never infer, estimate, or guess a number for any show — including ones also mentioned elsewhere in this data, like a collaborator credit or a flag — those summaries are derived from the same breakdown and aren't a substitute for checking it directly. If you want to compare two shows, look up both in the breakdown before claiming which got the stronger reaction.
+- Some breakdown lines also include the user's own [blurb] and/or [standout] text — their free-text reasoning about that specific experience. Use this to understand WHY a rating or verdict landed where it did (e.g. distinguishing "solid but forgettable" from "great score, terrible book" even when both are the same 3/5 Mixed), and to sort real evaluative content from incidental trivia (a cast note, a fun fact) where present — but never let this text override or substitute for the literal rating/verdict fields themselves. Synthesize what it tells you about their taste; don't quote it back at them.
 - Treat a show sitting in the "fine" (3/5) band across two or more different formats as a real signal of quiet dislike, not neutrality — name it directly if one is given to you.
 - Treat a show logged 3+ times with nothing rated below a 4 as a real, strong favorite in its own right — even if its creative team doesn't otherwise appear among the top collaborators. A one- or two-show creative team can legitimately never clear the collaborator-level bar, so don't undersell this signal just because it's tied to a single title.
 - The collaborator list below is already filtered to people with a real, qualifying track record and ranked by how well-supported that track record is, not just by raw percentage — a name with fewer logged shows needed a cleaner record to make this list at all. Cite the literal counts and percentage given, don't second-guess or re-derive them.

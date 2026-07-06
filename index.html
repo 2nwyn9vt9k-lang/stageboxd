@@ -314,6 +314,18 @@
   .exp-entry .meta{ font-family:var(--font-mono); font-size:10px; color:#7a756d; margin-top:6px; }
   .exp-entry-actions{ margin-top:8px; display:flex; gap:8px; }
 
+  /* Library detail popup (build 2026-07-06j): every section below the
+     credits line — tags, calendar row, on-loop row, experience list,
+     Computer Friend row — gets the same top gap, and collapses to zero when
+     it renders nothing (no tags, no experiences yet). This replaces a set of
+     ad hoc inline margin-bottom values (6px on tags, 8px on
+     calendar/loop/cf, 0 on the experience list itself) that didn't match
+     each other or .exp-entry's own 10px margin-top, which is why the
+     Computer Friend button used to sit flush against the last experience
+     card with no gap at all. */
+  .ld-section{ margin-top:10px; }
+  .ld-section:empty{ margin-top:0; }
+
   /* ---------- library list ---------- */
   .lib-controls{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
   /* A-Z jump bar (build 2026-06-30c): sticky directly under nav so it stays
@@ -621,7 +633,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-06i</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-06j</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -3081,11 +3093,11 @@ function openLibDetail(showId){
     <div class="modal" style="max-width:600px;">
       <h2 class="section-title" style="color:var(--ink)">${escapeHtml(show.title)}</h2>
       <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;" id="ld-credits">${show.year?show.year+' · ':''}${show.team.map(escapeHtml).join(', ')||(show.custom?'creative team unknown':'')}</p>
-      <div id="ld-tags">${show.tags && show.tags.length ? `<div class="tags" style="margin-bottom:6px;">${show.tags.map(t=>`<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>` : ''}</div>
-      <div id="ld-calendar" style="margin-bottom:8px;">${ldCalendarHtml(showId)}</div>
-      <div id="ld-loop" style="margin-bottom:8px;">${ldLoopHtml(showId)}</div>
-      <div id="libDetailExp"></div>
-      <div id="ld-cf" style="margin-bottom:8px;">${ldCfHtml(showId)}</div>
+      <div id="ld-tags">${show.tags && show.tags.length ? `<div class="tags">${show.tags.map(t=>`<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>` : ''}</div>
+      <div id="ld-calendar" class="ld-section">${ldCalendarHtml(showId)}</div>
+      <div id="ld-loop" class="ld-section">${ldLoopHtml(showId)}</div>
+      <div id="libDetailExp" class="ld-section"></div>
+      <div id="ld-cf" class="ld-section">${ldCfHtml(showId)}</div>
       <div class="btnrow">
         <button class="btn amber" id="ld-add">+ log an experience</button>
         ${show.custom ? '<button class="btn ghost-dark" id="ld-edit-details">Edit details</button>' : ''}
@@ -3119,7 +3131,7 @@ function openLibDetail(showId){
     // re-open
     const freshShow = getShow(showId);
     back.querySelector('#ld-credits').innerHTML = `${freshShow.year?freshShow.year+' · ':''}${freshShow.team.map(escapeHtml).join(', ')||'creative team unknown'}`;
-    back.querySelector('#ld-tags').innerHTML = freshShow.tags && freshShow.tags.length ? `<div class="tags" style="margin-bottom:6px;">${freshShow.tags.map(t=>`<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>` : '';
+    back.querySelector('#ld-tags').innerHTML = freshShow.tags && freshShow.tags.length ? `<div class="tags">${freshShow.tags.map(t=>`<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>` : '';
     back.querySelector('.section-title').textContent = freshShow.title;
   });
   back.querySelector('#ld-edit-credits').onclick = ()=> openEditCreditsModal(showId);

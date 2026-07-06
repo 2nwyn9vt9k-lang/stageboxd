@@ -621,7 +621,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-06h</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-06i</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -3014,7 +3014,7 @@ function wireLdLoop(back, showId){
 function ldCfHtml(showId){
   const st = getState(showId);
   if(st.experiences.length===0) return '';
-  const label = st.cfNote ? '💬 Ask Computer Friend about this show ▾' : '💬 Ask Computer Friend about this show';
+  const label = st.cfNote ? 'Ask Computer Friend about this show ▾' : 'Ask Computer Friend about this show';
   return `<div class="ld-cf-row" style="font-family:var(--font-mono);font-size:12px;">
     <button class="btn ghost-dark small" id="ld-cf-ask">${label}</button>
     <div id="ld-cf-body" style="display:none;"></div>
@@ -3045,12 +3045,12 @@ function wireLdCf(back, showId){
       o.cfNote = {text: raw.trim(), ts: Date.now()};
       saveData();
       btn.disabled = false;
-      btn.textContent = '💬 Ask Computer Friend about this show ▾';
+      btn.textContent = 'Ask Computer Friend about this show ▾';
       body.style.display = '';
       body.innerHTML = `<div class="ai-response" style="margin-top:8px;">${escapeHtml(o.cfNote.text)}</div>`;
     }catch(err){
       btn.disabled = false;
-      btn.textContent = '💬 Ask Computer Friend about this show';
+      btn.textContent = 'Ask Computer Friend about this show';
       if(err.message !== 'no-key'){
         body.style.display = '';
         body.innerHTML = `<div class="ai-response" style="margin-top:8px;">Something went wrong: ${escapeHtml(err.message)}</div>`;

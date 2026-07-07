@@ -633,7 +633,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-06l</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-06m</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1733,13 +1733,6 @@ function addExperience(id, exp){
   const o = ensureOverride(id);
   exp.id = 'e' + Date.now() + Math.floor(Math.random()*1000);
   o.experiences.push(exp);
-  // A new experience changes the data any saved per-show Computer Friend
-  // note was generated against, so the saved note is now stale — clear it
-  // rather than let it sit there quietly describing fewer data points than
-  // now exist. Editing or deleting an existing experience does NOT clear
-  // this (Cameron's call, 2026-07-06): only a genuinely new logged
-  // experience invalidates a prior answer enough to be worth the re-ask.
-  if(o.cfNote) o.cfNote = null;
   // someday / dontcare / noopinion all mean "haven't experienced this yet" —
   // once you've logged anything, that's no longer true, so these three
   // always clear. 'scheduled' is different on purpose: it's an upcoming,
@@ -3021,65 +3014,6 @@ function wireLdLoop(back, showId){
   };
 }
 
-// Per-show "Ask Computer Friend about this show" (build 2026-07-06h) — a
-// scoped, single-show counterpart to the whole-catalog live tier further
-// below. Lives in Library's detail popup only, right after the experience
-// list and before the add/edit/close button row. Deliberately minimal
-// compared to the whole-catalog version: plain prose (no JSON, no clickable
-// recommendations, no cross-catalog collaborator stats) — Cameron's framing
-// is that this is for a handful of favorites, not a feature used across the
-// whole library, so it doesn't need that machinery. The answer is saved on
-// the show's own override record as `cfNote` so reopening the popup later
-// shows it for free (collapsed by default); addExperience() clears it when
-// a new experience is logged, since the note is now stale (see there).
-function ldCfHtml(showId){
-  const st = getState(showId);
-  if(st.experiences.length===0) return '';
-  const label = st.cfNote ? 'Ask Computer Friend about this show ▾' : 'Ask Computer Friend about this show';
-  return `<div class="ld-cf-row" style="font-family:var(--font-mono);font-size:12px;">
-    <button class="btn ghost-dark small" id="ld-cf-ask">${label}</button>
-    <div id="ld-cf-body" style="display:none;"></div>
-  </div>`;
-}
-function wireLdCf(back, showId){
-  const host = back.querySelector('#ld-cf');
-  if(!host) return;
-  const btn = host.querySelector('#ld-cf-ask');
-  const body = host.querySelector('#ld-cf-body');
-  if(!btn || !body) return;
-  btn.onclick = async ()=>{
-    const st = getState(showId);
-    if(st.cfNote){
-      // Already have a saved answer for this show — this is a free
-      // expand/collapse toggle, no API call, no re-spend.
-      const isHidden = body.style.display === 'none';
-      body.style.display = isHidden ? '' : 'none';
-      if(isHidden) body.innerHTML = `<div class="ai-response" style="margin-top:8px;">${escapeHtml(st.cfNote.text)}</div>`;
-      return;
-    }
-    if(!getApiKey()){ openApiKeyModal(); return; }
-    btn.disabled = true; btn.textContent = 'thinking...';
-    try{
-      const {system, userText} = buildShowCfPrompt(showId);
-      const raw = await callClaudeAPI({system, userText, useWebSearch:false});
-      const o = ensureOverride(showId);
-      o.cfNote = {text: raw.trim(), ts: Date.now()};
-      saveData();
-      btn.disabled = false;
-      btn.textContent = 'Ask Computer Friend about this show ▾';
-      body.style.display = '';
-      body.innerHTML = `<div class="ai-response" style="margin-top:8px;">${escapeHtml(o.cfNote.text)}</div>`;
-    }catch(err){
-      btn.disabled = false;
-      btn.textContent = 'Ask Computer Friend about this show';
-      if(err.message !== 'no-key'){
-        body.style.display = '';
-        body.innerHTML = `<div class="ai-response" style="margin-top:8px;">Something went wrong: ${escapeHtml(err.message)}</div>`;
-      }
-    }
-  };
-}
-
 // Renders #libDetailExp inside an open detail popup and wires whatever it
 // contains — static entries, or one experience's edit form if editingExpId
 // matches it (see expListOrEditHtml/wireExpListOrEdit below). Pulled out of
@@ -3107,7 +3041,6 @@ function openLibDetail(showId){
       <div id="ld-calendar" class="ld-section">${ldCalendarHtml(showId)}</div>
       <div id="ld-loop" class="ld-section">${ldLoopHtml(showId)}</div>
       <div id="libDetailExp" class="ld-section"></div>
-      <div id="ld-cf" class="ld-section">${ldCfHtml(showId)}</div>
       <div class="btnrow">
         <button class="btn amber" id="ld-add">+ log an experience</button>
         ${show.custom ? '<button class="btn ghost-dark" id="ld-edit-details">Edit details</button>' : ''}
@@ -3122,7 +3055,6 @@ function openLibDetail(showId){
   wireLdCalendar(back, showId);
   wireLdLoop(back, showId);
   refreshLibDetailExp(back, showId);
-  wireLdCf(back, showId);
   back.querySelector('#ld-close').onclick = ()=>{ editingExpId = null; back.remove(); renderLibrary(); };
   back.querySelector('#ld-add').onclick = ()=>{
     editingExpId = null; // adding new and editing an existing one are mutually exclusive at any moment
@@ -4283,64 +4215,6 @@ function openVibeHistoryModal(){
     back.remove();
     renderVibeResultBox(); // in case acting on a rec in here changed something the main box should reflect
   };
-}
-
-// Builds the system + user payload for the scoped, single-show Computer
-// Friend ask (see ldCfHtml/wireLdCf above). Mirrors the per-show breakdown
-// format runLiveComputerFriend() below uses for its own showBreakdown lines,
-// so the two features describe an experience identically even though this
-// one only ever sees a single show's data.
-function buildShowCfPrompt(showId){
-  const show = getShow(showId);
-  const st = getState(showId);
-  const premise = getPremise(show);
-
-  const expLines = st.experiences.map(e=>{
-    const capLabel = (CAPACITIES.find(c=>c.key===e.capacity)||{}).label || e.capacity;
-    const verdictLabel = (VERDICTS.find(v=>v.key===e.verdict)||{}).label || (e.verdict || 'no verdict given');
-    const ratingText = (e.rating!==null && e.rating!==undefined) ? `${e.rating}/5` : 'no rating given';
-    const performedTag = e.performedIn ? ', performed in this one' : '';
-    const repeatTag = (e.capacity==='live' && e.repeatLive) ? ', seen live more than once' : '';
-    const blurbTag = e.blurb ? ` [blurb: "${e.blurb}"]` : '';
-    const standoutTag = e.moment ? ` [standout: "${e.moment}"]` : '';
-    return `${capLabel}: ${ratingText}, ${verdictLabel}${performedTag}${repeatTag}${blurbTag}${standoutTag}`;
-  });
-
-  // Same stuck-at-fine / comeback-favorite tests runLiveComputerFriend()
-  // applies catalog-wide, applied here to just this one show, so the model
-  // gets the flag as a fact rather than having to re-derive it itself.
-  const flags = [];
-  const rated = st.experiences.filter(e=>e.rating!==null && e.rating!==undefined);
-  const distinctCaps = new Set(rated.map(e=>e.capacity));
-  if(rated.length>=2 && distinctCaps.size>=2){
-    const ratings = rated.map(e=>e.rating);
-    const max = Math.max(...ratings), min = Math.min(...ratings);
-    const avg = ratings.reduce((a,b)=>a+b,0)/ratings.length;
-    if(max-min<=1 && avg>=2.5 && avg<=3.5) flags.push('stuck in the "fine" band across 2+ formats');
-  }
-  if(st.experiences.length>=3 && rated.length && Math.min(...rated.map(e=>e.rating))>=4) flags.push('a real comeback favorite — 3+ times logged, nothing below a 4');
-  if(st.onLoop) flags.push('currently on loop');
-  else if((st.loopCount||0)>0) flags.push(`looped before (${st.loopCount} time${st.loopCount===1?'':'s'} total)`);
-
-  const system = `You are "Computer Friend," a blunt, no-flattery analysis voice inside a personal musical-theater tracking app called The Underscore. You are being asked about ONE specific show, not the user's whole catalog — stay scoped to it, don't bring in other shows.
-Rules:
-- No flattery, no hedging filler. Lead with the finding.
-- Every logged experience for this show is listed below with its rating and verdict. You may ONLY cite a specific rating or verdict that appears literally in that list. Never guess, estimate, or infer a number.
-- If there's only one experience logged, say so plainly and don't invent a pattern or contrast that isn't there yet — a single data point isn't a trend.
-- If multiple experiences agree closely, say that plainly too. Don't manufacture a discrepancy or tension where the numbers actually line up — a confirmed, consistent favorite is a real finding, not a boring non-answer that needs spicing up.
-- Blurb/standout text (in [brackets] below) is the user's own free-text reasoning about that specific experience — use it to explain WHY a rating landed where it did, but never let it override or substitute for the literal rating/verdict fields.
-- Keep your answer under 100 words, plain prose, no headers, no bullet lists, no JSON.`;
-
-  const userText = `Show: ${show.title}${show.year?` (${show.year})`:''}
-Creative team: ${(show.team||[]).join(', ')||'unknown'}
-${premise ? `Premise: ${premise}\n` : ''}
-Logged experiences for this show:
-${expLines.join('\n')}
-${flags.length ? `\nOther flags for this show: ${flags.join('; ')}` : ''}
-
-What does my own logged data say about my relationship to this specific show?`;
-
-  return {system, userText};
 }
 
 async function runLiveComputerFriend(){

@@ -633,7 +633,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-06m</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-06n</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1835,6 +1835,7 @@ let reviewQueue = [];
 let currentReviewId = null;
 let loggingMode = false;
 let editingExpId = null; // 2026-06-27: which logged experience (if any) is currently showing its edit form in place, instead of the old delete-and-re-add-only workflow
+let expandedExpIds = new Set(); // 2026-07-06: which logged experiences (by id) are currently expanded in Library's detail popup. Library-only — Review's list always renders fully expanded, same as before this build. Reset to empty every time the detail popup opens or closes, so it always starts collapsed.
 let schedulingMode = false;
 let dontcareMode = false;
 let forcedReviewId = null; // when set, a specific show (e.g. a due "on the calendar" prompt) takes over Review regardless of the normal queue
@@ -2320,12 +2321,20 @@ function expEntryHtml(showId, e, context){
   if(!isLibrary && e.dateNote) bits.push(escapeHtml(e.dateNote));
   const capLabel = cap ? cap.icon+' '+cap.label : e.capacity;
   const headCapHtml = (isLibrary && e.dateNote) ? `${capLabel} · ${escapeHtml(e.dateNote)}` : capLabel;
-  return `
-    <div class="exp-entry ${verdictClass}">
-      <div class="exp-entry-head">
+  // Collapse/expand (build 2026-07-06n) is Library-only, same scope pattern as
+  // the dateNote-in-headline change above. Review's list is untouched and
+  // always renders fully expanded — isExpanded is forced true when
+  // context !== 'library'. Verdict color coding lives on the outer .exp-entry
+  // div via verdictClass, so it applies identically whether collapsed or
+  // expanded — nothing extra needed for that.
+  const isExpanded = !isLibrary || expandedExpIds.has(e.id);
+  const headAttrs = isLibrary ? ` data-toggle-exp="${e.id}" style="cursor:pointer;"` : '';
+  const headHtml = `
+      <div class="exp-entry-head"${headAttrs}>
         <span class="cap">${headCapHtml}</span>
         <span>${e.rating?RATING_LABELS[e.rating]+' ('+e.rating+'/5)':'no rating'} ${verdict? '· '+verdict.label:''}</span>
-      </div>
+      </div>`;
+  const bodyHtml = isExpanded ? `
       ${bits.length?`<div class="meta">${bits.join(' · ')}</div>`:''}
       ${e.performedIn?`<div class="meta">performed in this one</div>`:''}
       ${e.repeatLive?`<div class="meta">seen live more than once</div>`:''}
@@ -2334,7 +2343,11 @@ function expEntryHtml(showId, e, context){
       <div class="exp-entry-actions">
         <button class="btn small ghost-dark" data-edit="${showId}|${e.id}">edit</button>
         <button class="btn small danger" data-del="${showId}|${e.id}">remove</button>
-      </div>
+      </div>` : '';
+  return `
+    <div class="exp-entry ${verdictClass}">
+      ${headHtml}
+      ${bodyHtml}
     </div>
   `;
 }
@@ -2371,6 +2384,17 @@ function wireExpListOrEdit(container, showId, experiences, refreshFn){
     btn.onclick = ()=>{
       const [, expId] = btn.dataset.edit.split('|');
       editingExpId = expId;
+      refreshFn();
+    };
+  });
+  // Collapse/expand toggle (build 2026-07-06n) — only present on entries
+  // rendered with context==='library'; Review's entries never get this
+  // attribute, so this loop is a no-op there.
+  container.querySelectorAll('[data-toggle-exp]').forEach(head=>{
+    head.onclick = ()=>{
+      const expId = head.dataset.toggleExp;
+      if(expandedExpIds.has(expId)) expandedExpIds.delete(expId);
+      else expandedExpIds.add(expId);
       refreshFn();
     };
   });
@@ -3029,6 +3053,7 @@ function refreshLibDetailExp(back, showId){
 
 function openLibDetail(showId){
   editingExpId = null; // never assume a leftover edit-in-progress from whatever was open before this
+  expandedExpIds = new Set(); // every experience starts collapsed each time the popup opens
   const show = getShow(showId);
   const back = document.createElement('div');
   back.className = 'modal-backdrop';
@@ -3055,7 +3080,7 @@ function openLibDetail(showId){
   wireLdCalendar(back, showId);
   wireLdLoop(back, showId);
   refreshLibDetailExp(back, showId);
-  back.querySelector('#ld-close').onclick = ()=>{ editingExpId = null; back.remove(); renderLibrary(); };
+  back.querySelector('#ld-close').onclick = ()=>{ editingExpId = null; expandedExpIds = new Set(); back.remove(); renderLibrary(); };
   back.querySelector('#ld-add').onclick = ()=>{
     editingExpId = null; // adding new and editing an existing one are mutually exclusive at any moment
     refreshLibDetailExp(back, showId);

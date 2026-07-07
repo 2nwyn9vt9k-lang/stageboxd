@@ -633,7 +633,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-06n</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-06o</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1836,6 +1836,7 @@ let currentReviewId = null;
 let loggingMode = false;
 let editingExpId = null; // 2026-06-27: which logged experience (if any) is currently showing its edit form in place, instead of the old delete-and-re-add-only workflow
 let expandedExpIds = new Set(); // 2026-07-06: which logged experiences (by id) are currently expanded in Library's detail popup. Library-only — Review's list always renders fully expanded, same as before this build. Reset to empty every time the detail popup opens or closes, so it always starts collapsed.
+let libListDirty = false; // 2026-07-06: set true only when something happens INSIDE an open Library detail popup that the underlying grid tile doesn't already know about live — editing an existing experience's format/performed-in flag, toggling On Loop (which can also silently bump a DIFFERENT show off loop), or renaming a custom show's title. Reset to false every time the popup opens. Adding/deleting an experience and deleting a whole show already force their own immediate rebuild elsewhere and don't touch this flag. Read once, on Close, to decide whether the list behind the popup actually needs to redraw.
 let schedulingMode = false;
 let dontcareMode = false;
 let forcedReviewId = null; // when set, a specific show (e.g. a due "on the calendar" prompt) takes over Review regardless of the normal queue
@@ -2289,6 +2290,11 @@ function wireExperienceForm(showId, isNew, onDone, prefill, containerEl){
       };
       if(prefill && prefill.id){
         updateExperience(showId, prefill.id, exp);
+        // Editing an existing experience can change its capacity or
+        // performed-in flag, both of which the Library grid tile shows —
+        // but only matters if this edit happened inside the Library detail
+        // popup (containerEl is #libDetailExp there), not Review's own list.
+        if(containerEl && containerEl.closest && containerEl.closest('#libDetailExp')) libListDirty = true;
       } else {
         addExperience(showId, exp);
       }
@@ -3033,6 +3039,10 @@ function wireLdLoop(back, showId){
   const toggleBtn = host.querySelector('#ld-loop-toggle');
   if(toggleBtn) toggleBtn.onclick = ()=>{
     toggleOnLoop(showId);
+    // Changes this show's loop badge, and can silently bump a DIFFERENT
+    // show off loop too (see toggleOnLoop) — either way the grid behind
+    // this popup is now stale until Close rebuilds it.
+    libListDirty = true;
     host.innerHTML = ldLoopHtml(showId);
     wireLdLoop(back, showId);
   };
@@ -3054,6 +3064,7 @@ function refreshLibDetailExp(back, showId){
 function openLibDetail(showId){
   editingExpId = null; // never assume a leftover edit-in-progress from whatever was open before this
   expandedExpIds = new Set(); // every experience starts collapsed each time the popup opens
+  libListDirty = false; // clean slate — only a real qualifying edit while this popup is open should force the underlying list to redraw on close
   const show = getShow(showId);
   const back = document.createElement('div');
   back.className = 'modal-backdrop';
@@ -3080,7 +3091,16 @@ function openLibDetail(showId){
   wireLdCalendar(back, showId);
   wireLdLoop(back, showId);
   refreshLibDetailExp(back, showId);
-  back.querySelector('#ld-close').onclick = ()=>{ editingExpId = null; expandedExpIds = new Set(); back.remove(); renderLibrary(); };
+  back.querySelector('#ld-close').onclick = ()=>{
+    editingExpId = null;
+    expandedExpIds = new Set();
+    back.remove();
+    // Only redraw the list behind the popup if something happened in here
+    // that it doesn't already know about (see libListDirty's definition
+    // above). The 99% case — open, look, close — does neither, so the list
+    // is left completely untouched and never jumps back to the top.
+    if(libListDirty) renderLibrary();
+  };
   back.querySelector('#ld-add').onclick = ()=>{
     editingExpId = null; // adding new and editing an existing one are mutually exclusive at any moment
     refreshLibDetailExp(back, showId);
@@ -3100,6 +3120,10 @@ function openLibDetail(showId){
     back.querySelector('#ld-credits').innerHTML = `${freshShow.year?freshShow.year+' · ':''}${freshShow.team.map(escapeHtml).join(', ')||'creative team unknown'}`;
     back.querySelector('#ld-tags').innerHTML = freshShow.tags && freshShow.tags.length ? `<div class="tags">${freshShow.tags.map(t=>`<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>` : '';
     back.querySelector('.section-title').textContent = freshShow.title;
+    // A renamed title can change the tile's text AND its alphabetical
+    // position in the grid — the popup's own header is patched above, but
+    // the grid tile behind it isn't, so this has to wait for Close.
+    libListDirty = true;
   });
   back.querySelector('#ld-edit-credits').onclick = ()=> openEditCreditsModal(showId);
   const delBtn = back.querySelector('#ld-delete-show');

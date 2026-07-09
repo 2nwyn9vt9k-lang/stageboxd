@@ -42,6 +42,10 @@
     --ink:#0A3F3C;
     --chalk:#04211F;
     --chalk-dim:#082E2B;
+    /* Wrapped-tab chart accents only — not part of the core UI palette lock,
+       not used anywhere outside the Wrapped tab's charts. */
+    --chart-sky:#6E9BC7;
+    --chart-sage:#93A876;
     /* Blur radius (6px) is the parameter that caused the old "jumbled,
        illegible" glow — it's what fills in the gaps between letters on a
        bold condensed face. Left untouched on purpose; only opacity moved. */
@@ -136,10 +140,14 @@
     border-bottom-color:var(--amber);
   }
   @media (max-width:420px){
+    nav{
+      justify-content:space-between;
+      padding:0 6px;
+    }
     nav button{
-      padding:13px 8px;
-      font-size:11px;
-      letter-spacing:1px;
+      padding:13px 6px;
+      font-size:12px;
+      letter-spacing:1.2px;
     }
   }
 
@@ -642,7 +650,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-06o</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09b</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">

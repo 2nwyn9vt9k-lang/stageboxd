@@ -135,6 +135,13 @@
     color:var(--amber);
     border-bottom-color:var(--amber);
   }
+  @media (max-width:420px){
+    nav button{
+      padding:13px 8px;
+      font-size:11px;
+      letter-spacing:1px;
+    }
+  }
 
   main{
     max-width:760px;
@@ -619,12 +626,14 @@
   <button data-tab="review" class="active">Review</button>
   <button data-tab="library">Library</button>
   <button data-tab="vibe">Vibe Check</button>
+  <button data-tab="wrapped">Wrapped</button>
 </nav>
 
 <main>
   <div id="tab-review" class="tab active"></div>
   <div id="tab-library" class="tab"></div>
   <div id="tab-vibe" class="tab"></div>
+  <div id="tab-wrapped" class="tab"></div>
 </main>
 
 <div class="bottom-actions">

@@ -142,13 +142,41 @@
   @media (max-width:420px){
     nav{
       justify-content:space-between;
-      padding:0 6px;
+      padding:0 16px;
     }
     nav button{
       padding:13px 6px;
       font-size:12px;
       letter-spacing:1.2px;
     }
+  }
+
+  /* ---------- wrapped (build 2026-07-09d): paired stat tiles + chart
+     placeholders, in the Layout B order Cameron picked — a stat pair sits
+     right above the chart it explains rather than all 8 tiles bunched at
+     the top. Charts themselves aren't built yet; this is structure only. */
+  .wrapped-pair{
+    display:grid; grid-template-columns:1fr 1fr; gap:8px;
+    margin:22px 0 8px;
+  }
+  .wrapped-pair:first-child{ margin-top:0; }
+  .wrapped-tile{
+    background:var(--paper); border:1px solid var(--paper-line);
+    border-radius:6px; padding:10px 12px; text-align:center;
+  }
+  .wrapped-tile .num{
+    font-family:var(--font-mono); font-size:18px; font-weight:700;
+    color:var(--ink); display:block;
+  }
+  .wrapped-tile .label{
+    font-family:var(--font-mono); font-size:10px; letter-spacing:0.5px;
+    text-transform:uppercase; color:var(--chalk-dim); display:block; margin-top:2px;
+  }
+  .wrapped-chart-placeholder{
+    border:1px dashed var(--panel-line); border-radius:8px;
+    padding:32px 12px; text-align:center;
+    font-family:var(--font-mono); font-size:11px; color:var(--chalk-dim);
+    margin-bottom:6px;
   }
 
   main{
@@ -650,7 +678,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09b</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09d</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1842,6 +1870,7 @@ document.querySelectorAll('nav button').forEach(btn=>{
     if(btn.dataset.tab==='review' && !loggingMode && !schedulingMode && !dontcareMode) renderReview();
     if(btn.dataset.tab==='library') renderLibrary();
     if(btn.dataset.tab==='vibe') renderVibe();
+    if(btn.dataset.tab==='wrapped') renderWrapped();
   });
 });
 
@@ -4231,6 +4260,50 @@ function renderVibeResultBox(){
   };
   if(vibeResultCollapsed) return;
   wireVibeRecButtons(host, renderVibeResultBox);
+}
+
+// Wrapped tab (build 2026-07-09d): the recap-style page, structured in the
+// Layout B order Cameron picked over the header-block alternative — each
+// paired stat tile sits directly above the chart it explains, rather than
+// all 8 tiles bunched into one block at the top. The 6 chart bodies below
+// are placeholders only; the real per-chart math and rendering is a
+// separate, later step (this build is structure/placement, not data).
+function renderWrapped(){
+  const el = document.getElementById('tab-wrapped');
+  if(!el) return;
+  const loggedShows = Object.values(allShows()).filter(s=>getState(s.id).experiences.length>0);
+  const totalShows = loggedShows.length;
+  const totalExp = loggedShows.reduce((sum,s)=>sum+getState(s.id).experiences.length, 0);
+
+  el.innerHTML = `
+    <h2 class="section-title">Wrapped</h2>
+    <p class="section-sub">a recap of everything logged so far</p>
+
+    <div class="wrapped-pair">
+      <div class="wrapped-tile"><span class="num">${totalShows}</span><span class="label">shows logged</span></div>
+      <div class="wrapped-tile"><span class="num">${totalExp}</span><span class="label">experiences</span></div>
+    </div>
+    <div class="wrapped-chart-placeholder">Format Footprint — chart not built yet</div>
+    <div class="wrapped-chart-placeholder">Venue Footprint — chart not built yet</div>
+
+    <div class="wrapped-pair">
+      <div class="wrapped-tile"><span class="num">—</span><span class="label">oldest show</span></div>
+      <div class="wrapped-tile"><span class="num">—</span><span class="label">newest show</span></div>
+    </div>
+    <div class="wrapped-chart-placeholder">Decades Wheel — chart not built yet</div>
+
+    <div class="wrapped-pair">
+      <div class="wrapped-tile"><span class="num">—</span><span class="label">most-logged show</span></div>
+      <div class="wrapped-tile"><span class="num">—</span><span class="label">most divisive show</span></div>
+    </div>
+    <div class="wrapped-chart-placeholder">Rating vs. Verdict — chart not built yet</div>
+
+    <div class="wrapped-pair">
+      <div class="wrapped-tile"><span class="num">—</span><span class="label">on loop</span></div>
+      <div class="wrapped-tile"><span class="num">—</span><span class="label">All In rate</span></div>
+    </div>
+    <div class="wrapped-chart-placeholder">Your Queue Right Now — chart not built yet</div>
+  `;
 }
 
 // Past-runs browser (2026-06-27). Vibe history already stores up to 10 runs

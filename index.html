@@ -782,7 +782,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-10a</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-10b</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -2326,6 +2326,14 @@ function subfieldsHtml(formId, capKey, prefill){
       <label>Which version / release?</label>
       <input type="text" class="f-sublabel" placeholder="e.g. OBC, 2024 revival cast, movie soundtrack, the PBS broadcast..." value="${escapeHtml(prefill && prefill.subLabel || '')}">
     </div>` : ''}
+    ${capKey==='movie' ? `
+    <div class="field">
+      <label>Which kind of movie is this?</label>
+      <div class="capacity-row">
+        <span class="chip movie-direction-chip${prefill && prefill.movieDirection==='adaptation' ? ' on' : ''}" data-dir="adaptation">The movie adaptation of this musical</span>
+        <span class="chip movie-direction-chip${prefill && prefill.movieDirection==='source' ? ' on' : ''}" data-dir="source">The movie this musical is based on</span>
+      </div>
+    </div>` : ''}
     ${showsVenue ? `
     <div class="field">
       <label>Venue type</label>
@@ -2380,6 +2388,7 @@ function wireExperienceForm(showId, isNew, onDone, prefill, containerEl){
   let selectedVenues = (prefill && prefill.venueTypes) ? new Set(prefill.venueTypes) : new Set();
   let selectedRating = (prefill && prefill.rating!=null) ? prefill.rating : null;
   let selectedVerdict = (prefill && prefill.verdict) ? prefill.verdict : null;
+  let selectedMovieDirection = (prefill && prefill.movieDirection) ? prefill.movieDirection : null;
 
   wrapper.querySelectorAll('.cap-chip').forEach(chip=>{
     chip.onclick = ()=>{
@@ -2389,6 +2398,7 @@ function wireExperienceForm(showId, isNew, onDone, prefill, containerEl){
       selectedVenues = new Set();
       selectedRating = null;
       selectedVerdict = null;
+      selectedMovieDirection = null;
       subEl.innerHTML = subfieldsHtml(formId, selectedCap);
       wireSubfields();
     };
@@ -2418,6 +2428,13 @@ function wireExperienceForm(showId, isNew, onDone, prefill, containerEl){
         selectedVerdict = vc.dataset.v;
       };
     });
+    subEl.querySelectorAll('.movie-direction-chip').forEach(mc=>{
+      mc.onclick = ()=>{
+        subEl.querySelectorAll('.movie-direction-chip').forEach(x=>x.classList.remove('on'));
+        mc.classList.add('on');
+        selectedMovieDirection = mc.dataset.dir;
+      };
+    });
     const saveBtn = subEl.querySelector('.f-save');
     const cancelBtn = subEl.querySelector('.f-cancel');
     if(saveBtn) saveBtn.onclick = ()=>{
@@ -2430,6 +2447,7 @@ function wireExperienceForm(showId, isNew, onDone, prefill, containerEl){
         subLabel: sublabelEl ? sublabelEl.value.trim() : '',
         performedIn: performedEl ? performedEl.checked : false,
         repeatLive: repeatLiveEl ? repeatLiveEl.checked : false,
+        movieDirection: selectedCap==='movie' ? (selectedMovieDirection || null) : null,
         venueTypes: Array.from(selectedVenues),
         location: subEl.querySelector('.f-location').value.trim(),
         dateNote: subEl.querySelector('.f-datenote').value.trim(),
@@ -2472,6 +2490,8 @@ function expEntryHtml(showId, e, context){
   const verdictClass = e.verdict==='didntBuy' ? 'verdict-didntBuy' : (e.verdict==='allIn' ? 'verdict-allIn' : '');
   const bits = [];
   if(e.subLabel) bits.push(escapeHtml(e.subLabel));
+  if(e.capacity==='movie' && e.movieDirection==='source') bits.push('the movie this is based on');
+  if(e.capacity==='movie' && e.movieDirection==='adaptation') bits.push('movie adaptation of the musical');
   if(e.venueTypes && e.venueTypes.length) bits.push(e.venueTypes.map(escapeHtml).join('/'));
   if(e.location) bits.push(escapeHtml(e.location));
   if(!isLibrary && e.dateNote) bits.push(escapeHtml(e.dateNote));
@@ -4504,7 +4524,19 @@ function computeDecadesData(loggedShows){
   loggedShows.forEach(s=>{
     if(s.year==null) return;
     const exps = getState(s.id).experiences;
-    const qualifies = exps.some(e=>(e.rating && e.rating>=4) || e.verdict==='allIn' || e.verdict==='boughtIn');
+    const qualifies = exps.some(e=>{
+      const meetsBar = (e.rating && e.rating>=4) || e.verdict==='allIn' || e.verdict==='boughtIn';
+      if(!meetsBar) return false;
+      // A movie experience only counts toward Decades Wheel if it's tagged
+      // as the movie adaptation OF the musical, not the movie the musical
+      // is based ON — Decades is specifically about the musical's own era,
+      // and an unset/not-yet-tagged movie entry is treated the same as
+      // "source" (excluded) rather than assumed to qualify, per Cameron's
+      // call: remove any movie-only experience from consideration until
+      // it's actually been tagged one way or the other.
+      if(e.capacity==='movie' && e.movieDirection!=='adaptation') return false;
+      return true;
+    });
     if(!qualifies) return;
     const decade = Math.floor(s.year/DECADE_STEP)*DECADE_STEP;
     if(counts.hasOwnProperty(decade)){

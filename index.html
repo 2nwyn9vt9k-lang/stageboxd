@@ -186,6 +186,35 @@
     font-family:var(--font-mono); font-size:9px; font-style:italic;
     color:var(--chalk-dim); display:block; margin-top:4px; opacity:0.85;
   }
+  /* Rating vs. Verdict grid (build 2026-07-09k): 5x5 blend grid, blue
+     (--chart-sky) ramping with rating and pink (--pink, already the app's
+     All In color) ramping with verdict — a cell only turns rich purple
+     where both agree. Opacity separately scales with count so a rarely-hit
+     combo stays faint even if its blend would otherwise be dark. */
+  .rv-card{
+    background:var(--paper); border:1px solid var(--paper-line);
+    border-radius:8px; padding:16px 12px; margin-bottom:6px;
+  }
+  .rv-grid{
+    display:grid; grid-template-columns:32px repeat(5,1fr); gap:3px;
+  }
+  .rv-col-header{
+    font-family:var(--font-mono); font-size:8px; line-height:1.15;
+    color:var(--chalk-dim); text-align:center; align-self:end;
+    padding-bottom:3px;
+  }
+  .rv-row-label{
+    font-family:var(--font-mono); font-size:10px; color:var(--chalk-dim);
+    display:flex; align-items:center; justify-content:flex-end;
+    padding-right:3px;
+  }
+  .rv-cell{
+    aspect-ratio:1; border-radius:3px; border:1px solid var(--paper-line);
+  }
+  .rv-caption{
+    font-family:var(--font-mono); font-size:10px; color:var(--chalk-dim);
+    text-align:center; margin-top:10px; line-height:1.4;
+  }
   .wrapped-chart-placeholder{
     border:1px dashed var(--panel-line); border-radius:8px;
     padding:32px 12px; text-align:center;
@@ -772,7 +801,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09j</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09k</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -4579,6 +4608,70 @@ function computeMostDivisive(loggedShows){
 // Footprint, oldest/newest, and Decades Wheel are all real now; the
 // remaining 2 chart bodies and 1 stat pair are still placeholders — worked
 // through one at a time.
+// Rating vs. Verdict grid (build 2026-07-09k): counts every experience
+// (not unique shows — deliberately, per the planning doc, since the skew
+// toward All In/5-star is a real reflection of returning to favorites in
+// multiple formats, not a data error) into a 5(rating) x 5(verdict) grid.
+// Experiences with a null rating or null verdict (a real edge case — one
+// exists in Cameron's own data, a partially-filled entry) are skipped
+// rather than crashing or silently miscounting.
+const RV_ROWS = [5,4,3,2,1];
+const BLUE_RGB = [0x6E,0x9B,0xC7]; // matches --chart-sky
+const PINK_RGB = [0xFF,0x4F,0xA0]; // matches --pink (already the All In color)
+function computeRatingVerdictGrid(loggedShows){
+  const counts = {};
+  RV_ROWS.forEach(r=>{ counts[r] = {}; VERDICTS.forEach(v=>counts[r][v.key]=0); });
+  let maxCount = 0;
+  loggedShows.forEach(s=>{
+    getState(s.id).experiences.forEach(e=>{
+      if(e.rating==null || e.verdict==null) return;
+      if(!counts[e.rating] || !counts[e.rating].hasOwnProperty(e.verdict)) return;
+      counts[e.rating][e.verdict]++;
+      if(counts[e.rating][e.verdict] > maxCount) maxCount = counts[e.rating][e.verdict];
+    });
+  });
+  return {counts, maxCount};
+}
+// Subtractive-style blend from white: each axis "absorbs" light toward its
+// own color, proportional to how high that axis's intensity is. Both axes
+// maxed converges to a dark blue-violet; either axis alone converges to
+// that axis's own pure color (verified: rating=0/verdict=1 -> exactly
+// --pink; rating=1/verdict=0 -> exactly --chart-sky).
+function blendRatingVerdictColor(ratingIntensity, verdictIntensity){
+  return [0,1,2].map(i=>{
+    let v = 255;
+    v -= ratingIntensity * (255 - BLUE_RGB[i]);
+    v -= verdictIntensity * (255 - PINK_RGB[i]);
+    return Math.max(0, Math.round(v));
+  });
+}
+function renderRatingVerdictGridHtml(loggedShows){
+  const {counts, maxCount} = computeRatingVerdictGrid(loggedShows);
+  const colHeaders = VERDICTS.map(v=>`<div class="rv-col-header">${escapeHtml(v.label)}</div>`).join('');
+  const rows = RV_ROWS.map(r=>{
+    const ratingIntensity = r/5;
+    const cells = VERDICTS.map((v,vi)=>{
+      const c = counts[r][v.key];
+      if(c<=0) return `<div class="rv-cell" style="background:var(--paper);"></div>`;
+      const verdictIntensity = 1 - (vi/(VERDICTS.length-1));
+      const rgb = blendRatingVerdictColor(ratingIntensity, verdictIntensity);
+      const alpha = maxCount>0 ? 0.3 + 0.7*(c/maxCount) : 0;
+      return `<div class="rv-cell" style="background:rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha});" title="${escapeHtml(v.label)} · ${r}★ · ${c}"></div>`;
+    }).join('');
+    return `<div class="rv-row-label">${r}★</div>${cells}`;
+  }).join('');
+  return `
+    <div class="rv-card">
+      <div class="rv-grid">
+        <div></div>${colHeaders}
+        ${rows}
+      </div>
+      <p class="rv-caption">blue deepens with rating, pink deepens with verdict — a cell only turns rich purple where both are high. faint cells mean fewer logged experiences there.</p>
+    </div>
+  `;
+}
+
+
 function renderWrapped(){
   const el = document.getElementById('tab-wrapped');
   if(!el) return;
@@ -4610,7 +4703,7 @@ function renderWrapped(){
       <div class="wrapped-tile"><span class="num text">${mostLogged.shows.length ? `${mostLogged.shows.map(s=>escapeHtml(s.title)).join(', ')}` : '—'}</span><span class="label">most-logged${mostLogged.shows.length ? ` (${mostLogged.count} each)` : ''}</span></div>
       <div class="wrapped-tile"><span class="num text">${mostDivisive.winners.length ? `${mostDivisive.winners.map(s=>escapeHtml(s.title)).join(', ')}` : '—'}</span><span class="label">most divisive${mostDivisive.winners.length ? ` (range ${mostDivisive.range})` : ''}</span>${mostDivisive.others.length ? `<span class="tied-note">also tied at this range: ${mostDivisive.others.map(s=>escapeHtml(s.title)).join(', ')}</span>` : ''}</div>
     </div>
-    <div class="wrapped-chart-placeholder">Rating vs. Verdict — chart not built yet</div>
+    ${renderRatingVerdictGridHtml(loggedShows)}
 
     <div class="wrapped-pair">
       <div class="wrapped-tile"><span class="num">—</span><span class="label">on loop</span></div>

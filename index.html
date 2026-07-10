@@ -168,6 +168,13 @@
     font-family:var(--font-mono); font-size:18px; font-weight:700;
     color:var(--ink); display:block;
   }
+  /* Some stat tiles show a show title + year rather than a bare count
+     (oldest/newest show, etc, build 2026-07-09g) — same tile, smaller/
+     tighter text so a long title doesn't dwarf the neighboring number
+     tiles or wrap awkwardly. */
+  .wrapped-tile .num.text{
+    font-size:13px; line-height:1.3; font-weight:600;
+  }
   .wrapped-tile .label{
     font-family:var(--font-mono); font-size:10px; letter-spacing:0.5px;
     text-transform:uppercase; color:var(--chalk-dim); display:block; margin-top:2px;
@@ -733,7 +740,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09f</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09g</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -4426,7 +4433,20 @@ function renderVenueFootprintHtml(loggedShows){
   `;
 }
 
-// Wrapped tab (build 2026-07-09f): the recap-style page, structured in the
+// Oldest/newest logged show (build 2026-07-09g): the first of the three
+// remaining stat pairs. Reads show.year across every LOGGED show only
+// (same loggedShows set every other Wrapped stat/chart uses) — a show with
+// no year on record is skipped rather than treated as older/newer than
+// everything else.
+function computeOldestNewestShows(loggedShows){
+  let oldest = null, newest = null;
+  loggedShows.forEach(s=>{
+    if(s.year==null) return;
+    if(!oldest || s.year < oldest.year) oldest = s;
+    if(!newest || s.year > newest.year) newest = s;
+  });
+  return {oldest, newest};
+}
 // Layout B order Cameron picked over the header-block alternative — each
 // paired stat tile sits directly above the chart it explains, rather than
 // all 8 tiles bunched into one block at the top. Format Footprint and
@@ -4438,6 +4458,7 @@ function renderWrapped(){
   const loggedShows = Object.values(allShows()).filter(s=>getState(s.id).experiences.length>0);
   const totalShows = loggedShows.length;
   const totalExp = loggedShows.reduce((sum,s)=>sum+getState(s.id).experiences.length, 0);
+  const {oldest, newest} = computeOldestNewestShows(loggedShows);
 
   el.innerHTML = `
     <h2 class="section-title">Wrapped</h2>
@@ -4451,8 +4472,8 @@ function renderWrapped(){
     ${renderVenueFootprintHtml(loggedShows)}
 
     <div class="wrapped-pair">
-      <div class="wrapped-tile"><span class="num">—</span><span class="label">oldest show</span></div>
-      <div class="wrapped-tile"><span class="num">—</span><span class="label">newest show</span></div>
+      <div class="wrapped-tile"><span class="num text">${oldest ? `${escapeHtml(oldest.title)} (${oldest.year})` : '—'}</span><span class="label">oldest show</span></div>
+      <div class="wrapped-tile"><span class="num text">${newest ? `${escapeHtml(newest.title)} (${newest.year})` : '—'}</span><span class="label">newest show</span></div>
     </div>
     <div class="wrapped-chart-placeholder">Decades Wheel — chart not built yet</div>
 

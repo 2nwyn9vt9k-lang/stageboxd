@@ -178,6 +178,37 @@
     font-family:var(--font-mono); font-size:11px; color:var(--chalk-dim);
     margin-bottom:6px;
   }
+  /* Format Footprint donut (build 2026-07-09e): a plain CSS conic-gradient
+     ring, no chart library. Card wrapper matches .wrapped-tile's paper/
+     border convention so it reads as part of the same page, not a foreign
+     element. */
+  .wf-card{
+    background:var(--paper); border:1px solid var(--paper-line);
+    border-radius:8px; padding:16px 12px; margin-bottom:6px;
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+  }
+  .wf-donut-outer{
+    width:140px; height:140px; border-radius:50%;
+    position:relative;
+  }
+  .wf-donut-hole{
+    position:absolute; top:22px; left:22px; width:96px; height:96px;
+    border-radius:50%; background:var(--paper);
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-mono); font-size:11px; color:var(--chalk-dim);
+    text-align:center; line-height:1.3;
+  }
+  .wf-legend{
+    display:flex; flex-wrap:wrap; justify-content:center; gap:10px 16px;
+    width:100%;
+  }
+  .wf-legend-item{
+    display:flex; align-items:center; gap:6px;
+    font-family:var(--font-mono); font-size:11px; color:var(--ink);
+  }
+  .wf-legend-swatch{
+    width:10px; height:10px; border-radius:2px; flex-shrink:0;
+  }
 
   main{
     max-width:760px;
@@ -678,7 +709,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09d</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09e</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -4262,12 +4293,69 @@ function renderVibeResultBox(){
   wireVibeRecButtons(host, renderVibeResultBox);
 }
 
-// Wrapped tab (build 2026-07-09d): the recap-style page, structured in the
+// Format Footprint (build 2026-07-09e): counts every logged EXPERIENCE
+// (not per-show) by capacity, per the planning doc. Colors are drawn from
+// the existing 8-color palette only — 4 categories fit without needing the
+// new chart-sky/chart-sage variables (those are reserved for the two
+// higher-category-count charts, Venue Footprint and Queue). Pink/rust are
+// off-limits since they already mean All In / Didn't Buy It elsewhere.
+const FORMAT_COLORS = {
+  live:'var(--stage)', recording:'var(--panel)',
+  proshot:'var(--amber)', movie:'var(--amber-dim)'
+};
+function computeFormatCounts(loggedShows){
+  const counts = {live:0, recording:0, proshot:0, movie:0};
+  loggedShows.forEach(s=>{
+    getState(s.id).experiences.forEach(e=>{
+      if(counts.hasOwnProperty(e.capacity)) counts[e.capacity]++;
+    });
+  });
+  return counts;
+}
+// Generic conic-gradient builder, reusable by later Wrapped charts (Venue
+// Footprint, Queue) that also need a donut/stacked-slice shape.
+function conicGradientFromCounts(counts, order, colorMap){
+  const total = order.reduce((sum,k)=>sum+(counts[k]||0), 0);
+  if(total===0) return {gradient:'var(--paper-line)', total:0};
+  let acc = 0;
+  const stops = [];
+  order.forEach(k=>{
+    const c = counts[k]||0;
+    if(c<=0) return;
+    const start = (acc/total)*360;
+    acc += c;
+    const end = (acc/total)*360;
+    stops.push(`${colorMap[k]} ${start}deg ${end}deg`);
+  });
+  return {gradient:`conic-gradient(${stops.join(', ')})`, total};
+}
+function renderFormatFootprintHtml(loggedShows){
+  const counts = computeFormatCounts(loggedShows);
+  const order = CAPACITIES.map(c=>c.key);
+  const {gradient, total} = conicGradientFromCounts(counts, order, FORMAT_COLORS);
+  const legend = order.map(k=>{
+    const c = counts[k]||0;
+    if(c<=0) return '';
+    const cap = CAPACITIES.find(x=>x.key===k);
+    return `<div class="wf-legend-item"><span class="wf-legend-swatch" style="background:${FORMAT_COLORS[k]}"></span>${escapeHtml(cap.label)}: ${c}</div>`;
+  }).join('');
+  return `
+    <div class="wf-card">
+      <div class="wf-donut-outer" style="background:${gradient};">
+        <div class="wf-donut-hole">${total}<br>experiences</div>
+      </div>
+      <div class="wf-legend">${legend}</div>
+    </div>
+  `;
+}
+
+// Wrapped tab (build 2026-07-09e): the recap-style page, structured in the
 // Layout B order Cameron picked over the header-block alternative — each
 // paired stat tile sits directly above the chart it explains, rather than
-// all 8 tiles bunched into one block at the top. The 6 chart bodies below
-// are placeholders only; the real per-chart math and rendering is a
-// separate, later step (this build is structure/placement, not data).
+// all 8 tiles bunched into one block at the top. Format Footprint is now
+// real (2026-07-09e); the other 5 chart bodies are still placeholders —
+// the real per-chart math and rendering for those is a separate, later
+// step, worked through one chart at a time.
 function renderWrapped(){
   const el = document.getElementById('tab-wrapped');
   if(!el) return;
@@ -4283,7 +4371,7 @@ function renderWrapped(){
       <div class="wrapped-tile"><span class="num">${totalShows}</span><span class="label">shows logged</span></div>
       <div class="wrapped-tile"><span class="num">${totalExp}</span><span class="label">experiences</span></div>
     </div>
-    <div class="wrapped-chart-placeholder">Format Footprint — chart not built yet</div>
+    ${renderFormatFootprintHtml(loggedShows)}
     <div class="wrapped-chart-placeholder">Venue Footprint — chart not built yet</div>
 
     <div class="wrapped-pair">

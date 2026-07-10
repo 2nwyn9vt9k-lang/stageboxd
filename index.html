@@ -765,7 +765,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09h</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09i</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -4522,12 +4522,43 @@ function renderDecadesWheelHtml(loggedShows){
   return `<div class="dw-card">${rows}</div>`;
 }
 
-// Wrapped tab (build 2026-07-09h): the recap-style page, structured in the
+// Most-logged / most-divisive stat pair (build 2026-07-09i): both are
+// tie-aware on purpose — a real tie (confirmed against Cameron's data,
+// not assumed) gets ALL tied shows listed, not one arbitrarily picked.
+// Most-logged: which show(s) have the most logged experiences.
+function computeMostLogged(loggedShows){
+  let maxCount = 0;
+  loggedShows.forEach(s=>{
+    const n = getState(s.id).experiences.length;
+    if(n>maxCount) maxCount = n;
+  });
+  if(maxCount===0) return {shows:[], count:0};
+  const shows = loggedShows.filter(s=>getState(s.id).experiences.length===maxCount);
+  return {shows, count:maxCount};
+}
+// Most-divisive: widest spread (max minus min) among a show's own rated
+// experiences, needs 2+ rated experiences to even qualify (a single
+// experience can't be "divisive" against itself).
+function computeMostDivisive(loggedShows){
+  let maxRange = -1;
+  let shows = [];
+  loggedShows.forEach(s=>{
+    const ratings = getState(s.id).experiences.map(e=>e.rating).filter(r=>r!=null);
+    if(ratings.length<2) return;
+    const range = Math.max(...ratings) - Math.min(...ratings);
+    if(range>maxRange){ maxRange = range; shows = [s]; }
+    else if(range===maxRange){ shows.push(s); }
+  });
+  return {shows, range:maxRange};
+}
+
+// Wrapped tab (build 2026-07-09i): the recap-style page, structured in the
 // Layout B order Cameron picked over the header-block alternative — each
 // paired stat tile sits directly above the chart it explains, rather than
-// all 8 tiles bunched into one block at the top. Format Footprint and
-// Venue Footprint are now real; the remaining 4 chart bodies and 3 stat
-// pairs are still placeholders — worked through one at a time.
+// all 8 tiles bunched into one block at the top. Format Footprint, Venue
+// Footprint, oldest/newest, and Decades Wheel are all real now; the
+// remaining 2 chart bodies and 1 stat pair are still placeholders — worked
+// through one at a time.
 function renderWrapped(){
   const el = document.getElementById('tab-wrapped');
   if(!el) return;
@@ -4535,6 +4566,8 @@ function renderWrapped(){
   const totalShows = loggedShows.length;
   const totalExp = loggedShows.reduce((sum,s)=>sum+getState(s.id).experiences.length, 0);
   const {oldest, newest} = computeOldestNewestShows(loggedShows);
+  const mostLogged = computeMostLogged(loggedShows);
+  const mostDivisive = computeMostDivisive(loggedShows);
 
   el.innerHTML = `
     <h2 class="section-title">Wrapped</h2>
@@ -4554,8 +4587,8 @@ function renderWrapped(){
     ${renderDecadesWheelHtml(loggedShows)}
 
     <div class="wrapped-pair">
-      <div class="wrapped-tile"><span class="num">—</span><span class="label">most-logged show</span></div>
-      <div class="wrapped-tile"><span class="num">—</span><span class="label">most divisive show</span></div>
+      <div class="wrapped-tile"><span class="num text">${mostLogged.shows.length ? `${mostLogged.shows.map(s=>escapeHtml(s.title)).join(', ')}` : '—'}</span><span class="label">most-logged${mostLogged.shows.length ? ` (${mostLogged.count} each)` : ''}</span></div>
+      <div class="wrapped-tile"><span class="num text">${mostDivisive.shows.length ? `${mostDivisive.shows.map(s=>escapeHtml(s.title)).join(', ')}` : '—'}</span><span class="label">most divisive${mostDivisive.shows.length ? ` (range ${mostDivisive.range})` : ''}</span></div>
     </div>
     <div class="wrapped-chart-placeholder">Rating vs. Verdict — chart not built yet</div>
 

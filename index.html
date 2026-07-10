@@ -179,6 +179,13 @@
     font-family:var(--font-mono); font-size:10px; letter-spacing:0.5px;
     text-transform:uppercase; color:var(--chalk-dim); display:block; margin-top:2px;
   }
+  /* Build 2026-07-09j: a small note under a stat tile's label for showing
+     which OTHER shows tied on the primary metric but lost a tiebreaker —
+     seeing "it's a tie!" alone is less useful than seeing who was in it. */
+  .wrapped-tile .tied-note{
+    font-family:var(--font-mono); font-size:9px; font-style:italic;
+    color:var(--chalk-dim); display:block; margin-top:4px; opacity:0.85;
+  }
   .wrapped-chart-placeholder{
     border:1px dashed var(--panel-line); border-radius:8px;
     padding:32px 12px; text-align:center;
@@ -765,7 +772,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09i</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09j</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -4538,18 +4545,31 @@ function computeMostLogged(loggedShows){
 }
 // Most-divisive: widest spread (max minus min) among a show's own rated
 // experiences, needs 2+ rated experiences to even qualify (a single
-// experience can't be "divisive" against itself).
+// experience can't be "divisive" against itself). Build 2026-07-09j adds a
+// tiebreaker: among shows tied at the widest range, the one(s) with the
+// MOST rated experiences spanning that range win outright (a spread that
+// held up across more logged experiences is a more robust signal than a
+// two-data-point outlier) — variance was considered and rejected as the
+// tiebreaker, since on Cameron's real data it picks a thin custom-show
+// entry over a well-established title, which felt like a less honest
+// answer. Shows that tied on range but lost the tiebreaker are kept
+// (not discarded) as "others", so the tile can still show what they were
+// instead of just declaring a tie and hiding the detail.
 function computeMostDivisive(loggedShows){
   let maxRange = -1;
-  let shows = [];
+  let candidates = [];
   loggedShows.forEach(s=>{
     const ratings = getState(s.id).experiences.map(e=>e.rating).filter(r=>r!=null);
     if(ratings.length<2) return;
     const range = Math.max(...ratings) - Math.min(...ratings);
-    if(range>maxRange){ maxRange = range; shows = [s]; }
-    else if(range===maxRange){ shows.push(s); }
+    if(range>maxRange){ maxRange = range; candidates = [{show:s, ratedCount:ratings.length}]; }
+    else if(range===maxRange){ candidates.push({show:s, ratedCount:ratings.length}); }
   });
-  return {shows, range:maxRange};
+  if(candidates.length===0) return {winners:[], others:[], range:maxRange};
+  const maxRatedCount = Math.max(...candidates.map(c=>c.ratedCount));
+  const winners = candidates.filter(c=>c.ratedCount===maxRatedCount).map(c=>c.show);
+  const others = candidates.filter(c=>c.ratedCount!==maxRatedCount).map(c=>c.show);
+  return {winners, others, range:maxRange};
 }
 
 // Wrapped tab (build 2026-07-09i): the recap-style page, structured in the
@@ -4588,7 +4608,7 @@ function renderWrapped(){
 
     <div class="wrapped-pair">
       <div class="wrapped-tile"><span class="num text">${mostLogged.shows.length ? `${mostLogged.shows.map(s=>escapeHtml(s.title)).join(', ')}` : '—'}</span><span class="label">most-logged${mostLogged.shows.length ? ` (${mostLogged.count} each)` : ''}</span></div>
-      <div class="wrapped-tile"><span class="num text">${mostDivisive.shows.length ? `${mostDivisive.shows.map(s=>escapeHtml(s.title)).join(', ')}` : '—'}</span><span class="label">most divisive${mostDivisive.shows.length ? ` (range ${mostDivisive.range})` : ''}</span></div>
+      <div class="wrapped-tile"><span class="num text">${mostDivisive.winners.length ? `${mostDivisive.winners.map(s=>escapeHtml(s.title)).join(', ')}` : '—'}</span><span class="label">most divisive${mostDivisive.winners.length ? ` (range ${mostDivisive.range})` : ''}</span>${mostDivisive.others.length ? `<span class="tied-note">also tied at this range: ${mostDivisive.others.map(s=>escapeHtml(s.title)).join(', ')}</span>` : ''}</div>
     </div>
     <div class="wrapped-chart-placeholder">Rating vs. Verdict — chart not built yet</div>
 

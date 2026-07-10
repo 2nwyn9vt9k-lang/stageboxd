@@ -209,6 +209,30 @@
   .wf-legend-swatch{
     width:10px; height:10px; border-radius:2px; flex-shrink:0;
   }
+  /* Venue Footprint 100%-stacked bar (build 2026-07-09f): a single full-
+     width bar split into 6 proportional segments, legend below. First
+     chart to use the new --chart-sky/--chart-sage accents, since 6
+     categories exceeds what the 4 non-reserved core colors can cover
+     without repeats. */
+  .vf-card{
+    background:var(--paper); border:1px solid var(--paper-line);
+    border-radius:8px; padding:16px 12px; margin-bottom:6px;
+  }
+  .vf-bar{
+    display:flex; width:100%; height:22px; border-radius:5px;
+    overflow:hidden; margin-bottom:14px;
+  }
+  .vf-bar-seg{ height:100%; }
+  .vf-legend{
+    display:flex; flex-wrap:wrap; justify-content:center; gap:8px 14px;
+  }
+  .vf-legend-item{
+    display:flex; align-items:center; gap:6px;
+    font-family:var(--font-mono); font-size:11px; color:var(--ink);
+  }
+  .vf-legend-swatch{
+    width:10px; height:10px; border-radius:2px; flex-shrink:0;
+  }
 
   main{
     max-width:760px;
@@ -709,7 +733,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09e</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09f</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -4349,13 +4373,65 @@ function renderFormatFootprintHtml(loggedShows){
   `;
 }
 
-// Wrapped tab (build 2026-07-09e): the recap-style page, structured in the
+// Venue Footprint (build 2026-07-09f): counts experiences with capacity
+// live OR proshot that carry a venueTypes tag (both capacities legitimately
+// carry venue type per the planning doc). First chart to use the new
+// --chart-sky/--chart-sage accents, since 6 categories is more than the 4
+// non-reserved core colors can cover without repeating near-identical
+// teal/gold shades. Order and colors both fixed, not alphabetical/dynamic.
+const VENUE_ORDER = ['Broadway','National Tour','West End','Off-Broadway / Professional','Regional / Community','School'];
+const VENUE_COLORS = {
+  'Broadway':'var(--stage)',
+  'National Tour':'var(--panel)',
+  'West End':'var(--chart-sky)',
+  'Off-Broadway / Professional':'var(--amber)',
+  'Regional / Community':'var(--amber-dim)',
+  'School':'var(--chart-sage)'
+};
+function computeVenueCounts(loggedShows){
+  const counts = {};
+  VENUE_ORDER.forEach(v=>counts[v]=0);
+  loggedShows.forEach(s=>{
+    getState(s.id).experiences.forEach(e=>{
+      if((e.capacity==='live' || e.capacity==='proshot') && e.venueTypes && e.venueTypes.length){
+        e.venueTypes.forEach(v=>{ if(counts.hasOwnProperty(v)) counts[v]++; });
+      }
+    });
+  });
+  return counts;
+}
+function renderVenueFootprintHtml(loggedShows){
+  const counts = computeVenueCounts(loggedShows);
+  const total = VENUE_ORDER.reduce((sum,v)=>sum+counts[v], 0);
+  if(total===0){
+    return `<div class="vf-card"><div class="wrapped-chart-placeholder" style="border:none;padding:8px 0;margin:0;">no venue-tagged experiences yet</div></div>`;
+  }
+  const segs = VENUE_ORDER.map(v=>{
+    const c = counts[v];
+    if(c<=0) return '';
+    const pct = (c/total)*100;
+    return `<div class="vf-bar-seg" style="width:${pct}%;background:${VENUE_COLORS[v]};"></div>`;
+  }).join('');
+  const legend = VENUE_ORDER.map(v=>{
+    const c = counts[v];
+    if(c<=0) return '';
+    const pct = Math.round((c/total)*100);
+    return `<div class="vf-legend-item"><span class="vf-legend-swatch" style="background:${VENUE_COLORS[v]}"></span>${escapeHtml(v)}: ${c} (${pct}%)</div>`;
+  }).join('');
+  return `
+    <div class="vf-card">
+      <div class="vf-bar">${segs}</div>
+      <div class="vf-legend">${legend}</div>
+    </div>
+  `;
+}
+
+// Wrapped tab (build 2026-07-09f): the recap-style page, structured in the
 // Layout B order Cameron picked over the header-block alternative — each
 // paired stat tile sits directly above the chart it explains, rather than
-// all 8 tiles bunched into one block at the top. Format Footprint is now
-// real (2026-07-09e); the other 5 chart bodies are still placeholders —
-// the real per-chart math and rendering for those is a separate, later
-// step, worked through one chart at a time.
+// all 8 tiles bunched into one block at the top. Format Footprint and
+// Venue Footprint are now real; the remaining 4 chart bodies and 3 stat
+// pairs are still placeholders — worked through one at a time.
 function renderWrapped(){
   const el = document.getElementById('tab-wrapped');
   if(!el) return;
@@ -4372,7 +4448,7 @@ function renderWrapped(){
       <div class="wrapped-tile"><span class="num">${totalExp}</span><span class="label">experiences</span></div>
     </div>
     ${renderFormatFootprintHtml(loggedShows)}
-    <div class="wrapped-chart-placeholder">Venue Footprint — chart not built yet</div>
+    ${renderVenueFootprintHtml(loggedShows)}
 
     <div class="wrapped-pair">
       <div class="wrapped-tile"><span class="num">—</span><span class="label">oldest show</span></div>

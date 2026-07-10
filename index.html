@@ -215,6 +215,9 @@
     font-family:var(--font-mono); font-size:10px; color:var(--chalk-dim);
     text-align:center; margin-top:10px; line-height:1.4;
   }
+  /* Your Queue Right Now donut (build 2026-07-09l): same conic-gradient
+     approach as Format Footprint, reusing its .wf-* markup/classes rather
+     than duplicating a near-identical donut+legend structure. */
   .wrapped-chart-placeholder{
     border:1px dashed var(--panel-line); border-radius:8px;
     padding:32px 12px; text-align:center;
@@ -801,7 +804,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09k</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09l</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -4672,6 +4675,61 @@ function renderRatingVerdictGridHtml(loggedShows){
 }
 
 
+// Your Queue Right Now (build 2026-07-09l): the last chart. Runs over the
+// FULL catalog (not just loggedShows, unlike every other Wrapped chart),
+// since it's specifically about status across everything — but excludes
+// the raw untouched shows (null status, zero experiences) per the planning
+// doc, since those aren't a meaningful "queue" bucket, just noise.
+// Precedence when a show has more than one true condition: scheduled >
+// logged (has >=1 experience) > someday > don't care > no opinion — status
+// and logged-experience are independent fields, so a show CAN be both
+// logged and separately scheduled for an upcoming viewing.
+const QUEUE_ORDER = ['scheduled','logged','someday','dontcare','noopinion'];
+const QUEUE_LABELS = {scheduled:'Scheduled', logged:'Logged', someday:'Someday', dontcare:"Don't Care", noopinion:'No Opinion'};
+const QUEUE_COLORS = {
+  logged:'var(--stage)',
+  noopinion:'var(--panel)',
+  someday:'var(--chart-sky)',
+  scheduled:'var(--amber)',
+  dontcare:'var(--chart-sage)'
+};
+function computeQueueCounts(){
+  const counts = {}; QUEUE_ORDER.forEach(k=>counts[k]=0);
+  Object.values(allShows()).forEach(s=>{
+    const st = getState(s.id);
+    let bucket = null;
+    if(st.status==='scheduled') bucket='scheduled';
+    else if(st.experiences.length>0) bucket='logged';
+    else if(st.status==='someday') bucket='someday';
+    else if(st.status==='dontcare') bucket='dontcare';
+    else if(st.status==='noopinion') bucket='noopinion';
+    if(bucket) counts[bucket]++;
+  });
+  return counts;
+}
+function renderQueueRightNowHtml(){
+  const counts = computeQueueCounts();
+  // Display order follows the planning doc's own listing (Logged, No
+  // Opinion, Someday, Scheduled, Don't Care), distinct from QUEUE_ORDER's
+  // precedence order used above for bucketing.
+  const displayOrder = ['logged','noopinion','someday','scheduled','dontcare'];
+  const {gradient, total} = conicGradientFromCounts(counts, displayOrder, QUEUE_COLORS);
+  const legend = displayOrder.map(k=>{
+    const c = counts[k]||0;
+    if(c<=0) return '';
+    return `<div class="wf-legend-item"><span class="wf-legend-swatch" style="background:${QUEUE_COLORS[k]}"></span>${escapeHtml(QUEUE_LABELS[k])}: ${c}</div>`;
+  }).join('');
+  return `
+    <div class="wf-card">
+      <div class="wf-donut-outer" style="background:${gradient};">
+        <div class="wf-donut-hole">${total}<br>in queue</div>
+      </div>
+      <div class="wf-legend">${legend}</div>
+    </div>
+  `;
+}
+
+
 function renderWrapped(){
   const el = document.getElementById('tab-wrapped');
   if(!el) return;
@@ -4709,7 +4767,7 @@ function renderWrapped(){
       <div class="wrapped-tile"><span class="num">—</span><span class="label">on loop</span></div>
       <div class="wrapped-tile"><span class="num">—</span><span class="label">All In rate</span></div>
     </div>
-    <div class="wrapped-chart-placeholder">Your Queue Right Now — chart not built yet</div>
+    ${renderQueueRightNowHtml()}
   `;
 }
 

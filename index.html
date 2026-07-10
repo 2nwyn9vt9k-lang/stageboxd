@@ -163,6 +163,7 @@
   .wrapped-tile{
     background:var(--paper); border:1px solid var(--paper-line);
     border-radius:6px; padding:10px 12px; text-align:center;
+    display:flex; flex-direction:column; justify-content:center;
   }
   .wrapped-tile .num{
     font-family:var(--font-mono); font-size:18px; font-weight:700;
@@ -185,40 +186,6 @@
   .wrapped-tile .tied-note{
     font-family:var(--font-mono); font-size:9px; font-style:italic;
     color:var(--chalk-dim); display:block; margin-top:4px; opacity:0.85;
-  }
-  /* Rating vs. Verdict grid (build 2026-07-09k): 5x5 blend grid, blue
-     (--chart-sky) ramping with rating and pink (--pink, already the app's
-     All In color) ramping with verdict — a cell only turns rich purple
-     where both agree. Opacity separately scales with count so a rarely-hit
-     combo stays faint even if its blend would otherwise be dark. */
-  .rv-card{
-    background:var(--paper); border:1px solid var(--paper-line);
-    border-radius:8px; padding:16px 12px; margin-bottom:6px;
-    display:flex; flex-direction:column; align-items:center;
-  }
-  .rv-grid{
-    display:grid; grid-template-columns:22px repeat(5,26px); gap:2px;
-  }
-  .rv-col-header{
-    font-family:var(--font-mono); font-size:8px; line-height:1.15;
-    color:var(--chalk-dim); text-align:center; align-self:end;
-    padding-bottom:3px;
-  }
-  .rv-row-label{
-    font-family:var(--font-mono); font-size:10px; color:var(--chalk-dim);
-    display:flex; align-items:center; justify-content:flex-end;
-    padding-right:3px;
-  }
-  .rv-cell{
-    aspect-ratio:1; border-radius:3px; border:1px solid var(--paper-line);
-  }
-  .rv-cell-allin{
-    border:1px solid var(--pink);
-    box-shadow:0 0 0 1px rgba(255,79,160,0.18), 0 0 8px rgba(255,79,160,0.35);
-  }
-  .rv-caption{
-    font-family:var(--font-mono); font-size:10px; color:var(--chalk-dim);
-    text-align:center; margin-top:10px; line-height:1.4;
   }
   /* Your Queue Right Now donut (build 2026-07-09l): same conic-gradient
      approach as Format Footprint, reusing its .wf-* markup/classes rather
@@ -813,7 +780,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09n</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09o</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -4571,7 +4538,7 @@ function renderDecadesWheelHtml(loggedShows){
   return `
     <div class="dw-card">
       ${rows}
-      <p class="dw-caption">one square per show you loved — rated 4★ or higher, or verdict Bought In/All In — grouped by the decade it's from.</p>
+      <p class="dw-caption">Decades of Shows You Love</p>
     </div>
   `;
 }
@@ -4626,81 +4593,6 @@ function computeMostDivisive(loggedShows){
 // Footprint, oldest/newest, and Decades Wheel are all real now; the
 // remaining 2 chart bodies and 1 stat pair are still placeholders — worked
 // through one at a time.
-// Rating vs. Verdict grid (build 2026-07-09k): counts every experience
-// (not unique shows — deliberately, per the planning doc, since the skew
-// toward All In/5-star is a real reflection of returning to favorites in
-// multiple formats, not a data error) into a 5(rating) x 5(verdict) grid.
-// Experiences with a null rating or null verdict (a real edge case — one
-// exists in Cameron's own data, a partially-filled entry) are skipped
-// rather than crashing or silently miscounting.
-const RV_ROWS = [5,4,3,2,1];
-const BLUE_RGB = [0x6E,0x9B,0xC7]; // matches --chart-sky
-const GREEN_RGB = [0x93,0xA8,0x76]; // matches --chart-sage
-function computeRatingVerdictGrid(loggedShows){
-  const counts = {};
-  RV_ROWS.forEach(r=>{ counts[r] = {}; VERDICTS.forEach(v=>counts[r][v.key]=0); });
-  let maxCount = 0;
-  loggedShows.forEach(s=>{
-    getState(s.id).experiences.forEach(e=>{
-      if(e.rating==null || e.verdict==null) return;
-      if(!counts[e.rating] || !counts[e.rating].hasOwnProperty(e.verdict)) return;
-      counts[e.rating][e.verdict]++;
-      if(counts[e.rating][e.verdict] > maxCount) maxCount = counts[e.rating][e.verdict];
-    });
-  });
-  return {counts, maxCount};
-}
-// Subtractive-style blend from white: each axis "absorbs" light toward its
-// own color, proportional to how high that axis's intensity is. Both axes
-// maxed converges to a deep teal-green; either axis alone converges to
-// that axis's own pure color (verified: rating=0/verdict=1 -> exactly
-// --chart-sage; rating=1/verdict=0 -> exactly --chart-sky). Pink is no
-// longer part of this blend (Cameron's call, swapped to blue+green) - the
-// 5-star/All-In cell instead gets a dedicated pink glow layered on top,
-// see .rv-cell-allin below, so the All In callback isn't lost entirely.
-function blendRatingVerdictColor(ratingIntensity, verdictIntensity){
-  return [0,1,2].map(i=>{
-    let v = 255;
-    v -= ratingIntensity * (255 - BLUE_RGB[i]);
-    v -= verdictIntensity * (255 - GREEN_RGB[i]);
-    return Math.max(0, Math.round(v));
-  });
-}
-function renderRatingVerdictGridHtml(loggedShows){
-  const {counts, maxCount} = computeRatingVerdictGrid(loggedShows);
-  // Display order is reversed from VERDICTS' own array order (Cameron's
-  // call: 5-star + All In should land top-right, not top-left) - but each
-  // verdict's intensity is still computed off its ORIGINAL index in
-  // VERDICTS, since that index is what encodes "how positive is this
-  // verdict," not its new left-to-right screen position.
-  const displayVerdicts = VERDICTS.map((v,vi)=>({
-    ...v, intensity: 1 - (vi/(VERDICTS.length-1))
-  })).slice().reverse();
-  const colHeaders = displayVerdicts.map(v=>`<div class="rv-col-header">${escapeHtml(v.label)}</div>`).join('');
-  const rows = RV_ROWS.map(r=>{
-    const ratingIntensity = r/5;
-    const cells = displayVerdicts.map(v=>{
-      const isAllInCorner = (r===5 && v.key==='allIn');
-      const c = counts[r][v.key];
-      if(c<=0) return `<div class="rv-cell${isAllInCorner ? ' rv-cell-allin' : ''}" style="background:var(--paper);"></div>`;
-      const rgb = blendRatingVerdictColor(ratingIntensity, v.intensity);
-      const alpha = maxCount>0 ? 0.3 + 0.7*(c/maxCount) : 0;
-      return `<div class="rv-cell${isAllInCorner ? ' rv-cell-allin' : ''}" style="background:rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha});" title="${escapeHtml(v.label)} · ${r}★ · ${c}"></div>`;
-    }).join('');
-    return `<div class="rv-row-label">${r}★</div>${cells}`;
-  }).join('');
-  return `
-    <div class="rv-card">
-      <div class="rv-grid">
-        <div></div>${colHeaders}
-        ${rows}
-      </div>
-      <p class="rv-caption">blue deepens with rating, green deepens with verdict — a cell only turns deep teal where both are high. the 5★/All In cell also gets a pink glow, the app's usual All In marker. faint cells mean fewer logged experiences there.</p>
-    </div>
-  `;
-}
-
-
 // Your Queue Right Now (build 2026-07-09l): the last chart. Runs over the
 // FULL catalog (not just loggedShows, unlike every other Wrapped chart),
 // since it's specifically about status across everything — but excludes
@@ -4755,7 +4647,7 @@ function renderQueueRightNowHtml(){
   return `
     <div class="wf-card">
       <div class="wf-donut-outer" style="background:${gradient};">
-        <div class="wf-donut-hole">${total}<br>the full ledger</div>
+        <div class="wf-donut-hole">${total}<br>everything, sorted</div>
       </div>
       <div class="wf-legend">${legend}</div>
     </div>
@@ -4819,7 +4711,6 @@ function renderWrapped(){
       <div class="wrapped-tile"><span class="num text">${mostLogged.shows.length ? `${mostLogged.shows.map(s=>escapeHtml(s.title)).join(', ')}` : '—'}</span><span class="label">most-logged${mostLogged.shows.length ? ` (${mostLogged.count} each)` : ''}</span></div>
       <div class="wrapped-tile"><span class="num text">${mostDivisive.winners.length ? `${mostDivisive.winners.map(s=>escapeHtml(s.title)).join(', ')}` : '—'}</span><span class="label">most divisive${mostDivisive.winners.length ? ` (range ${mostDivisive.range})` : ''}</span>${mostDivisive.others.length ? `<span class="tied-note">also tied at this range: ${mostDivisive.others.map(s=>escapeHtml(s.title)).join(', ')}</span>` : ''}</div>
     </div>
-    ${renderRatingVerdictGridHtml(loggedShows)}
 
     <div class="wrapped-pair">
       <div class="wrapped-tile"><span class="num text">${onLoopTitles.length ? onLoopTitles.map(t=>escapeHtml(t)).join(', ') : '—'}</span><span class="label">on loop</span></div>

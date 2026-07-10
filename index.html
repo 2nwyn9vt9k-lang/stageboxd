@@ -782,7 +782,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-10b</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-10c</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -2297,7 +2297,7 @@ function experienceFormHtml(showId, compact, prefill){
   return `
   <div class="exp-form" data-form="${formId}">
     <div class="field">
-      <label>Capacity</label>
+      <label>Format</label>
       <div class="capacity-grid">
         ${CAPACITIES.map(c=>`<span class="chip cap-chip${prefill && prefill.capacity===c.key ? ' on' : ''}" data-cap="${c.key}">${c.icon} ${c.label}</span>`).join('')}
       </div>
@@ -2359,7 +2359,7 @@ function subfieldsHtml(formId, capKey, prefill){
       <div class="rate-hint" id="ratehint-${formId}">${prefill && prefill.rating ? RATING_LABELS[prefill.rating] : '&nbsp;'}</div>
     </div>` : ''}
     <div class="field">
-      <label>Verdict</label>
+      <label>Verdict <span style="text-transform:none;font-weight:normal;color:var(--chalk-dim);font-size:11px;">(separate from your star rating — how you actually felt)</span></label>
       <div class="capacity-row">
         ${VERDICTS.map(v=>`<span class="chip verdict-chip${prefill && prefill.verdict===v.key ? ' on' : ''}" data-v="${v.key}">${v.label}</span>`).join('')}
       </div>

@@ -263,6 +263,8 @@
     display:flex; align-items:center; gap:8px; margin-bottom:6px;
   }
   .dw-row:last-child{ margin-bottom:0; }
+  .dw-row-clickable{ cursor:pointer; }
+  .dw-row-clickable:hover .dw-row-label{ color:var(--chalk); }
   .dw-row-label{
     font-family:var(--font-mono); font-size:10px; color:var(--chalk-dim);
     width:38px; flex-shrink:0; text-align:right;
@@ -780,7 +782,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09o</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09q</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -4497,16 +4499,24 @@ function computeDecadesData(loggedShows){
   const decades = [];
   for(let d=DECADE_START; d<=DECADE_END; d+=DECADE_STEP) decades.push(d);
   const counts = {};
-  decades.forEach(d=>counts[d]=0);
+  const shows = {};
+  decades.forEach(d=>{ counts[d]=0; shows[d]=[]; });
   loggedShows.forEach(s=>{
     if(s.year==null) return;
     const exps = getState(s.id).experiences;
     const qualifies = exps.some(e=>(e.rating && e.rating>=4) || e.verdict==='allIn' || e.verdict==='boughtIn');
     if(!qualifies) return;
     const decade = Math.floor(s.year/DECADE_STEP)*DECADE_STEP;
-    if(counts.hasOwnProperty(decade)) counts[decade]++;
+    if(counts.hasOwnProperty(decade)){
+      counts[decade]++;
+      shows[decade].push({title:s.title, year:s.year});
+    }
   });
-  return {decades, counts};
+  // Each decade's show list sorted oldest-first, so the popup reads as a
+  // mini-timeline within the decade rather than whatever order the
+  // library happens to store shows in.
+  decades.forEach(d=> shows[d].sort((a,b)=>(a.year||0)-(b.year||0)));
+  return {decades, counts, shows};
 }
 // Single-hue ramp (teal), light-to-dark across the decades — one continuous
 // timeline, not separate categories, so no rainbow. Derived from --stage's
@@ -4524,8 +4534,8 @@ function decadeSquareColor(index, total){
   const rgb = mixRgb(light, dark, t);
   return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
 }
-function renderDecadesWheelHtml(loggedShows){
-  const {decades, counts} = computeDecadesData(loggedShows);
+function renderDecadesWheelHtml(decadeData){
+  const {decades, counts} = decadeData;
   const rows = decades.map((d,i)=>{
     const c = counts[d];
     const color = decadeSquareColor(i, decades.length);
@@ -4533,7 +4543,11 @@ function renderDecadesWheelHtml(loggedShows){
       ? Array.from({length:c}).map(()=>`<div class="dw-sq" style="background:${color};"></div>`).join('')
       : '';
     const body = c>0 ? `<div class="dw-row-squares">${squares}</div>` : `<div class="dw-row-empty">none yet</div>`;
-    return `<div class="dw-row"><span class="dw-row-label">${d}s</span>${body}</div>`;
+    // Only decades with at least one qualifying show are tappable — an
+    // empty "none yet" row has nothing to show in a popup.
+    const clickAttr = c>0 ? ` data-decade="${d}"` : '';
+    const rowClass = c>0 ? 'dw-row dw-row-clickable' : 'dw-row';
+    return `<div class="${rowClass}"${clickAttr}><span class="dw-row-label">${d}s</span>${body}</div>`;
   }).join('');
   return `
     <div class="dw-card">
@@ -4541,6 +4555,38 @@ function renderDecadesWheelHtml(loggedShows){
       <p class="dw-caption">Decades of Shows You Love</p>
     </div>
   `;
+}
+
+// Wires up tap-to-open on the Decades Wheel's rows. Takes the same `shows`
+// map computeDecadesData() already produced (passed in via closure from
+// renderWrapped) rather than recomputing or round-tripping it through a
+// data attribute.
+function wireDecadesWheel(container, decadeShows){
+  container.querySelectorAll('.dw-row-clickable[data-decade]').forEach(row=>{
+    row.onclick = ()=> openDecadeShowsModal(row.dataset.decade, decadeShows[row.dataset.decade]||[]);
+  });
+}
+
+// Popup listing the actual shows behind one decade's square count — same
+// "don't just show a number, let them see what it's counting" pattern as
+// openCollabShowsModal() in Vibe Check.
+function openDecadeShowsModal(decade, showList){
+  const back = document.createElement('div');
+  back.className = 'modal-backdrop';
+  const rows = showList.length
+    ? showList.map(s=>`<div class="lib-subitem">${escapeHtml(s.title)}${s.year?` <span class="sub-extra">(${s.year})</span>`:''}</div>`).join('')
+    : '<p style="font-size:13px;color:#7a756d;">No titles recorded.</p>';
+  back.innerHTML = `
+    <div class="modal">
+      <h2 class="section-title" style="color:var(--ink)">${escapeHtml(decade)}s</h2>
+      <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;">${showList.length} show${showList.length===1?'':'s'} rated 4★+ or verdict Bought In/All In</p>
+      <div>${rows}</div>
+      <div class="btnrow"><button class="btn small" id="dwModalClose">Close</button></div>
+    </div>
+  `;
+  document.body.appendChild(back);
+  back.querySelector('#dwModalClose').onclick = ()=> back.remove();
+  back.onclick = (ev)=>{ if(ev.target===back) back.remove(); };
 }
 
 // Most-logged / most-divisive stat pair (build 2026-07-09i): both are
@@ -4689,6 +4735,7 @@ function renderWrapped(){
   const mostLogged = computeMostLogged(loggedShows);
   const mostDivisive = computeMostDivisive(loggedShows);
   const {onLoopTitles, allInRate} = computeOnLoopAndAllInRate(loggedShows);
+  const decadeData = computeDecadesData(loggedShows);
 
   el.innerHTML = `
     <h2 class="section-title">Wrapped</h2>
@@ -4705,7 +4752,7 @@ function renderWrapped(){
       <div class="wrapped-tile"><span class="num text">${oldest ? `${escapeHtml(oldest.title)} (${oldest.year})` : '—'}</span><span class="label">oldest show</span></div>
       <div class="wrapped-tile"><span class="num text">${newest ? `${escapeHtml(newest.title)} (${newest.year})` : '—'}</span><span class="label">newest show</span></div>
     </div>
-    ${renderDecadesWheelHtml(loggedShows)}
+    ${renderDecadesWheelHtml(decadeData)}
 
     <div class="wrapped-pair">
       <div class="wrapped-tile"><span class="num text">${mostLogged.shows.length ? `${mostLogged.shows.map(s=>escapeHtml(s.title)).join(', ')}` : '—'}</span><span class="label">most-logged${mostLogged.shows.length ? ` (${mostLogged.count} each)` : ''}</span></div>
@@ -4718,6 +4765,7 @@ function renderWrapped(){
     </div>
     ${renderQueueRightNowHtml()}
   `;
+  wireDecadesWheel(el, decadeData.shows);
 }
 
 // Past-runs browser (2026-06-27). Vibe history already stores up to 10 runs

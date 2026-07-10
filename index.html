@@ -240,6 +240,31 @@
   .vf-legend-swatch{
     width:10px; height:10px; border-radius:2px; flex-shrink:0;
   }
+  /* Decades Wheel waffle grid (build 2026-07-09h): one row per decade, one
+     small square per qualifying UNIQUE show (not per experience). Single
+     hue (sage) ramped light-to-dark across the 11 decades, since it's one
+     continuous timeline rather than separate categories. */
+  .dw-card{
+    background:var(--paper); border:1px solid var(--paper-line);
+    border-radius:8px; padding:16px 12px; margin-bottom:6px;
+  }
+  .dw-row{
+    display:flex; align-items:center; gap:8px; margin-bottom:6px;
+  }
+  .dw-row:last-child{ margin-bottom:0; }
+  .dw-row-label{
+    font-family:var(--font-mono); font-size:10px; color:var(--chalk-dim);
+    width:38px; flex-shrink:0; text-align:right;
+  }
+  .dw-row-squares{
+    display:flex; flex-wrap:wrap; gap:3px; flex:1;
+  }
+  .dw-sq{
+    width:10px; height:10px; border-radius:2px; flex-shrink:0;
+  }
+  .dw-row-empty{
+    font-family:var(--font-mono); font-size:10px; color:var(--paper-line);
+  }
 
   main{
     max-width:760px;
@@ -740,7 +765,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09g</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-09h</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -4447,6 +4472,57 @@ function computeOldestNewestShows(loggedShows){
   });
   return {oldest, newest};
 }
+// Decades Wheel (build 2026-07-09h): one row per decade, one square per
+// qualifying UNIQUE show — a show counts once even if logged multiple
+// times in different formats (the fix Cameron caught during planning,
+// where Little Shop/Show Boat were being double/triple-counted). Qualifies
+// if ANY of its experiences has rating>=4 OR verdict is allIn/boughtIn.
+const DECADE_START = 1920, DECADE_END = 2020, DECADE_STEP = 10;
+function computeDecadesData(loggedShows){
+  const decades = [];
+  for(let d=DECADE_START; d<=DECADE_END; d+=DECADE_STEP) decades.push(d);
+  const counts = {};
+  decades.forEach(d=>counts[d]=0);
+  loggedShows.forEach(s=>{
+    if(s.year==null) return;
+    const exps = getState(s.id).experiences;
+    const qualifies = exps.some(e=>(e.rating && e.rating>=4) || e.verdict==='allIn' || e.verdict==='boughtIn');
+    if(!qualifies) return;
+    const decade = Math.floor(s.year/DECADE_STEP)*DECADE_STEP;
+    if(counts.hasOwnProperty(decade)) counts[decade]++;
+  });
+  return {decades, counts};
+}
+// Single-hue ramp (sage), light-to-dark across the decades — one continuous
+// timeline, not separate categories, so no rainbow. Derived from
+// --chart-sage's own RGB value rather than an unrelated new color: light
+// endpoint mixes it toward white, dark endpoint mixes it toward black.
+const SAGE_RGB = [0x93,0xA8,0x76];
+function mixRgb(a, b, t){
+  return [0,1,2].map(i=>Math.round(a[i] + (b[i]-a[i])*t));
+}
+function decadeSquareColor(index, total){
+  const light = mixRgb([255,255,255], SAGE_RGB, 0.35);
+  const dark = mixRgb(SAGE_RGB, [0,0,0], 0.45);
+  const t = total<=1 ? 1 : index/(total-1);
+  const rgb = mixRgb(light, dark, t);
+  return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+}
+function renderDecadesWheelHtml(loggedShows){
+  const {decades, counts} = computeDecadesData(loggedShows);
+  const rows = decades.map((d,i)=>{
+    const c = counts[d];
+    const color = decadeSquareColor(i, decades.length);
+    const squares = c>0
+      ? Array.from({length:c}).map(()=>`<div class="dw-sq" style="background:${color};"></div>`).join('')
+      : '';
+    const body = c>0 ? `<div class="dw-row-squares">${squares}</div>` : `<div class="dw-row-empty">none yet</div>`;
+    return `<div class="dw-row"><span class="dw-row-label">${d}s</span>${body}</div>`;
+  }).join('');
+  return `<div class="dw-card">${rows}</div>`;
+}
+
+// Wrapped tab (build 2026-07-09h): the recap-style page, structured in the
 // Layout B order Cameron picked over the header-block alternative — each
 // paired stat tile sits directly above the chart it explains, rather than
 // all 8 tiles bunched into one block at the top. Format Footprint and
@@ -4475,7 +4551,7 @@ function renderWrapped(){
       <div class="wrapped-tile"><span class="num text">${oldest ? `${escapeHtml(oldest.title)} (${oldest.year})` : '—'}</span><span class="label">oldest show</span></div>
       <div class="wrapped-tile"><span class="num text">${newest ? `${escapeHtml(newest.title)} (${newest.year})` : '—'}</span><span class="label">newest show</span></div>
     </div>
-    <div class="wrapped-chart-placeholder">Decades Wheel — chart not built yet</div>
+    ${renderDecadesWheelHtml(loggedShows)}
 
     <div class="wrapped-pair">
       <div class="wrapped-tile"><span class="num">—</span><span class="label">most-logged show</span></div>

@@ -1881,6 +1881,13 @@ function toggleOnLoop(id){
 function addExperience(id, exp){
   const o = ensureOverride(id);
   exp.id = 'e' + Date.now() + Math.floor(Math.random()*1000);
+  // loggedAt (build 2026-07-17a): invisible millisecond timestamp, set once
+  // here at creation only. updateExperience() below never touches it, since
+  // the patch object it merges in never carries a loggedAt key — editing an
+  // existing experience later leaves this untouched by construction, not by
+  // an explicit guard. No backfill for the 201 pre-existing experiences;
+  // absent means "logged before timestamps existed."
+  exp.loggedAt = Date.now();
   o.experiences.push(exp);
   // someday / dontcare / noopinion all mean "haven't experienced this yet" —
   // once you've logged anything, that's no longer true, so these three
@@ -2307,6 +2314,24 @@ function experienceFormHtml(showId, compact, prefill){
   `;
 }
 
+// Per-format year-field labels (build 2026-07-17a, change 2): dateNote keeps
+// its name and stored values unchanged — only the label and input behavior
+// change based on which capacity is selected. A live entry's year is a
+// seen-year; a non-live entry's year is the recording/film year.
+const DATE_NOTE_LABELS = {
+  live: 'Year — when you saw it',
+  recording: 'Recording year',
+  proshot: 'Recording year',
+  movie: 'Film year',
+};
+// Re-listen/rewatch checkbox labels (build 2026-07-17a, change 3): appears
+// only for these three non-live capacities. Live has its own separate,
+// differently-purposed repeatLive checkbox untouched by this.
+const RE_EXPERIENCE_LABELS = {
+  recording: 'Re-listen (I already knew this show)',
+  movie: 'Rewatch (I already knew this show)',
+  proshot: 'Rewatch (I already knew this show)',
+};
 function subfieldsHtml(formId, capKey, prefill){
   const showsVenue = ['live','proshot'].includes(capKey);
   const showsSubLabel = ['recording','movie','proshot'].includes(capKey);
@@ -2326,6 +2351,12 @@ function subfieldsHtml(formId, capKey, prefill){
       <label>Which version / release?</label>
       <input type="text" class="f-sublabel" placeholder="e.g. OBC, 2024 revival cast, movie soundtrack, the PBS broadcast..." value="${escapeHtml(prefill && prefill.subLabel || '')}">
     </div>` : ''}
+    ${RE_EXPERIENCE_LABELS[capKey] ? `
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:8px;text-transform:none;font-family:var(--font-body);font-size:14px;color:var(--ink);">
+        <input type="checkbox" class="f-reexperience" style="width:auto;" ${prefill && prefill.reExperience ? 'checked' : ''}> ${RE_EXPERIENCE_LABELS[capKey]}
+      </label>
+    </div>` : ''}
     ${capKey==='movie' ? `
     <div class="field">
       <label>Which kind of movie is this?</label>
@@ -2341,13 +2372,14 @@ function subfieldsHtml(formId, capKey, prefill){
         ${VENUE_TYPES.map(v=>`<span class="chip venue-chip${prefill && prefill.venueTypes && prefill.venueTypes.includes(v) ? ' on' : ''}" data-venue="${escapeHtml(v)}">${escapeHtml(v)}</span>`).join('')}
       </div>
     </div>` : ''}
+    ${capKey==='live' ? `
     <div class="field">
       <label>City (optional)</label>
       <input type="text" class="f-location" placeholder="if you remember" value="${escapeHtml(prefill && prefill.location || '')}">
-    </div>
+    </div>` : ''}
     <div class="field">
-      <label>Roughly when (optional, no need to be exact)</label>
-      <input type="text" class="f-datenote" placeholder="e.g. ~2017, senior year, before kids" value="${escapeHtml(prefill && prefill.dateNote || '')}">
+      <label>${DATE_NOTE_LABELS[capKey] || 'Roughly when (optional, no need to be exact)'}</label>
+      <input type="text" inputmode="numeric" class="f-datenote" placeholder="e.g. 2017" value="${escapeHtml(prefill && prefill.dateNote || '')}">
     </div>
     ${showsRating ? `
     <div class="field">
@@ -2405,6 +2437,18 @@ function wireExperienceForm(showId, isNew, onDone, prefill, containerEl){
   });
 
   function wireSubfields(){
+    // Year-field nudge (build 2026-07-17a, change 2): strips anything
+    // non-numeric and caps at 4 characters as the person types, going
+    // forward only. Blank stays fully allowed. Never touches an
+    // already-stored value — this only reacts to new keystrokes, so an old
+    // entry like "~2015" or "senior year" stays exactly as stored until
+    // someone actively retypes it.
+    const datenoteEl = subEl.querySelector('.f-datenote');
+    if(datenoteEl){
+      datenoteEl.addEventListener('input', ()=>{
+        datenoteEl.value = datenoteEl.value.replace(/[^0-9]/g,'').slice(0,4);
+      });
+    }
     subEl.querySelectorAll('.venue-chip').forEach(vc=>{
       vc.onclick = ()=>{
         vc.classList.toggle('on');
@@ -2442,14 +2486,20 @@ function wireExperienceForm(showId, isNew, onDone, prefill, containerEl){
       const sublabelEl = subEl.querySelector('.f-sublabel');
       const performedEl = subEl.querySelector('.f-performed');
       const repeatLiveEl = subEl.querySelector('.f-repeat-live');
+      const reexperienceEl = subEl.querySelector('.f-reexperience');
+      // City (change 4) only renders a control when capacity is Live now —
+      // when it's hidden, fall back to whatever was already stored so an
+      // old entry's value stays put untouched rather than getting wiped.
+      const locationEl = subEl.querySelector('.f-location');
       const exp = {
         capacity: selectedCap,
         subLabel: sublabelEl ? sublabelEl.value.trim() : '',
         performedIn: performedEl ? performedEl.checked : false,
         repeatLive: repeatLiveEl ? repeatLiveEl.checked : false,
+        reExperience: reexperienceEl ? reexperienceEl.checked : ((prefill && prefill.reExperience) || false),
         movieDirection: selectedCap==='movie' ? (selectedMovieDirection || null) : null,
         venueTypes: Array.from(selectedVenues),
-        location: subEl.querySelector('.f-location').value.trim(),
+        location: locationEl ? locationEl.value.trim() : ((prefill && prefill.location) || ''),
         dateNote: subEl.querySelector('.f-datenote').value.trim(),
         rating: selectedRating,
         verdict: selectedVerdict,
@@ -2492,6 +2542,8 @@ function expEntryHtml(showId, e, context){
   if(e.subLabel) bits.push(escapeHtml(e.subLabel));
   if(e.capacity==='movie' && e.movieDirection==='source') bits.push('the movie this is based on');
   if(e.capacity==='movie' && e.movieDirection==='adaptation') bits.push('movie adaptation of the musical');
+  if(e.capacity==='recording' && e.reExperience) bits.push('re-listen');
+  if((e.capacity==='movie' || e.capacity==='proshot') && e.reExperience) bits.push('rewatch');
   if(e.venueTypes && e.venueTypes.length) bits.push(e.venueTypes.map(escapeHtml).join('/'));
   if(e.location) bits.push(escapeHtml(e.location));
   if(!isLibrary && e.dateNote) bits.push(escapeHtml(e.dateNote));

@@ -782,7 +782,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-17b</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-17c</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -2376,6 +2376,10 @@ function subfieldsHtml(formId, capKey, prefill){
     <div class="field">
       <label>City (optional)</label>
       <input type="text" class="f-location" placeholder="if you remember" value="${escapeHtml(prefill && prefill.location || '')}">
+    </div>
+    <div class="field">
+      <label>Who you were with (optional)</label>
+      <input type="text" class="f-withwho" placeholder="e.g. Mom, solo, the whole gang" value="${escapeHtml(prefill && prefill.withWho || '')}">
     </div>` : ''}
     <div class="field">
       <label>${DATE_NOTE_LABELS[capKey] || 'Roughly when (optional, no need to be exact)'}</label>
@@ -2491,6 +2495,11 @@ function wireExperienceForm(showId, isNew, onDone, prefill, containerEl){
       // when it's hidden, fall back to whatever was already stored so an
       // old entry's value stays put untouched rather than getting wiped.
       const locationEl = subEl.querySelector('.f-location');
+      // withWho (build 2, live-only) follows the exact same hidden-field
+      // fallback as location just above it: when the control isn't rendered
+      // (any non-Live capacity), fall back to whatever was already stored so
+      // an old entry's value survives an in-place edit untouched.
+      const withWhoEl = subEl.querySelector('.f-withwho');
       const exp = {
         capacity: selectedCap,
         subLabel: sublabelEl ? sublabelEl.value.trim() : '',
@@ -2500,6 +2509,7 @@ function wireExperienceForm(showId, isNew, onDone, prefill, containerEl){
         movieDirection: selectedCap==='movie' ? (selectedMovieDirection || null) : null,
         venueTypes: Array.from(selectedVenues),
         location: locationEl ? locationEl.value.trim() : ((prefill && prefill.location) || ''),
+        withWho: withWhoEl ? withWhoEl.value.trim() : ((prefill && prefill.withWho) || ''),
         dateNote: subEl.querySelector('.f-datenote').value.trim(),
         rating: selectedRating,
         verdict: selectedVerdict,
@@ -2546,6 +2556,7 @@ function expEntryHtml(showId, e, context){
   if((e.capacity==='movie' || e.capacity==='proshot') && e.reExperience) bits.push('rewatch');
   if(e.venueTypes && e.venueTypes.length) bits.push(e.venueTypes.map(escapeHtml).join('/'));
   if(e.location) bits.push(escapeHtml(e.location));
+  if(e.withWho) bits.push(escapeHtml(e.withWho));
   if(!isLibrary && e.dateNote) bits.push(escapeHtml(e.dateNote));
   const capLabel = cap ? cap.icon+' '+cap.label : e.capacity;
   const headCapHtml = (isLibrary && e.dateNote) ? `${capLabel} · ${escapeHtml(e.dateNote)}` : capLabel;
@@ -3270,6 +3281,58 @@ function wireLdLoop(back, showId){
   };
 }
 
+// Favorite song (build 2) — one per show, set/edited only in Library's
+// detail popup. Same refresh-in-place pattern as ldCalendarHtml/ldLoopHtml
+// just above: a quiet "+ favorite song" affordance when unset, the title
+// plus a small edit link when set, both routed through getFavoriteSong()/
+// setFavoriteSong() so seed vs. custom storage is invisible here.
+function ldFavSongHtml(showId){
+  const show = getShow(showId);
+  const song = getFavoriteSong(show);
+  if(song){
+    return `<div class="ld-favsong-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12px;">
+      <span>🎵 Favorite song: <b>${escapeHtml(song)}</b></span>
+      <button class="btn ghost-dark small" id="ld-favsong-edit">edit</button>
+      <button class="btn small" id="ld-favsong-clear">clear</button>
+    </div>`;
+  }
+  return `<div class="ld-favsong-row">
+    <button class="btn ghost-dark small" id="ld-favsong-set">+ favorite song</button>
+  </div>`;
+}
+function wireLdFavSong(back, showId){
+  const host = back.querySelector('#ld-favsong');
+  if(!host) return;
+  const refresh = ()=>{ host.innerHTML = ldFavSongHtml(showId); wireLdFavSong(back, showId); };
+  const setBtn = host.querySelector('#ld-favsong-set');
+  const editBtn = host.querySelector('#ld-favsong-edit');
+  const clearBtn = host.querySelector('#ld-favsong-clear');
+  const openSongPrompt = (existingSong)=>{
+    host.innerHTML = `
+      <div class="field" style="margin:0 0 6px;">
+        <label>Favorite song from this show</label>
+        <input type="text" id="ld-favsong-input" placeholder="e.g. Being Alive" value="${escapeHtml(existingSong||'')}">
+      </div>
+      <div class="btnrow" style="margin-top:0;">
+        <button class="btn amber small" id="ld-favsong-confirm">Save</button>
+        <button class="btn small" id="ld-favsong-cancel">Cancel</button>
+      </div>
+    `;
+    host.querySelector('#ld-favsong-confirm').onclick = ()=>{
+      const val = host.querySelector('#ld-favsong-input').value;
+      setFavoriteSong(showId, val);
+      refresh();
+    };
+    host.querySelector('#ld-favsong-cancel').onclick = refresh;
+  };
+  if(setBtn) setBtn.onclick = ()=> openSongPrompt(null);
+  if(editBtn) editBtn.onclick = ()=> openSongPrompt(getFavoriteSong(getShow(showId)));
+  if(clearBtn) clearBtn.onclick = ()=>{
+    setFavoriteSong(showId, null);
+    refresh();
+  };
+}
+
 // Renders #libDetailExp inside an open detail popup and wires whatever it
 // contains — static entries, or one experience's edit form if editingExpId
 // matches it (see expListOrEditHtml/wireExpListOrEdit below). Pulled out of
@@ -3296,6 +3359,7 @@ function openLibDetail(showId){
       <p style="font-family:var(--font-mono);font-size:11px;color:#5a5550;margin-top:-6px;" id="ld-credits">${show.year?show.year+' · ':''}${show.team.map(escapeHtml).join(', ')||(show.custom?'creative team unknown':'')}</p>
       <div id="ld-tags">${show.tags && show.tags.length ? `<div class="tags">${show.tags.map(t=>`<span class="tag-pill">${escapeHtml(t)}</span>`).join('')}</div>` : ''}</div>
       ${(()=>{ const premise = getPremise(show); return premise ? `<div class="premise">${escapeHtml(premise)}</div>` : ''; })()}
+      <div id="ld-favsong" class="ld-section">${ldFavSongHtml(showId)}</div>
       <div id="ld-calendar" class="ld-section">${ldCalendarHtml(showId)}</div>
       <div id="ld-loop" class="ld-section">${ldLoopHtml(showId)}</div>
       <div id="libDetailExp" class="ld-section"></div>
@@ -3310,6 +3374,7 @@ function openLibDetail(showId){
     </div>
   `;
   document.body.appendChild(back);
+  wireLdFavSong(back, showId);
   wireLdCalendar(back, showId);
   wireLdLoop(back, showId);
   refreshLibDetailExp(back, showId);
@@ -3626,6 +3691,29 @@ function setShowRoles(showId, name, roleObj){
     const o = ensureOverride(showId);
     if(!o.roleOverrides) o.roleOverrides = {};
     o.roleOverrides[name] = roleObj;
+  }
+  saveData();
+}
+
+// FAVORITE SONG (build 2): one optional string per show, not per experience.
+// Storage routes exactly like `roles` above — a custom show has no seed
+// layer, so its favorite song lives directly on its own DATA.customShows
+// record; a seed show's lives on the override record, same tier as
+// `premiseOverride`/`roleOverrides`. No new top-level storage key either
+// way — both records already ride along inside `ledger-data`.
+function getFavoriteSong(show){
+  if(!show) return null;
+  if(show.custom) return (DATA.customShows[show.id] || {}).favoriteSong || null;
+  return (DATA.overrides[show.id] || {}).favoriteSong || null;
+}
+function setFavoriteSong(showId, song){
+  const show = getShow(showId);
+  const val = (song||'').trim() || null;
+  if(show && show.custom){
+    DATA.customShows[showId].favoriteSong = val;
+  } else {
+    const o = ensureOverride(showId);
+    o.favoriteSong = val;
   }
   saveData();
 }

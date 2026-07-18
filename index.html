@@ -282,6 +282,71 @@
     font-family:var(--font-mono); font-size:10px; color:var(--chalk-dim);
     text-align:center; margin-top:10px; line-height:1.4;
   }
+  /* Guilty Pleasures (build 2026-07-17d): a plain paper-card row list, same
+     family as the ticket/library row conventions — title left, meta right,
+     with an optional italic split-note underneath when a show's own
+     qualifying experiences disagree with each other. */
+  .gp-card{
+    background:var(--paper); border:1px solid var(--paper-line);
+    border-radius:8px; padding:16px 12px; margin-bottom:6px;
+  }
+  .gp-title{
+    font-family:var(--font-mono); font-size:12px; font-weight:700;
+    letter-spacing:1.5px; text-transform:uppercase; color:var(--ink);
+    text-align:center; margin:0 0 12px;
+  }
+  .gp-row{ padding:5px 4px; border-bottom:1px solid var(--paper-line); }
+  .gp-row:last-of-type{ border-bottom:none; }
+  .gp-row-line{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  .gp-row-title{ font-size:14px; font-weight:600; color:var(--ink); }
+  .gp-row-meta{ font-family:var(--font-mono); font-size:10.5px; color:var(--chalk-dim); white-space:nowrap; }
+  .gp-split-note{
+    font-family:var(--font-mono); font-size:9px; font-style:italic;
+    color:var(--chalk-dim); opacity:0.85; margin-top:1px;
+  }
+  .gp-caption{
+    font-family:var(--font-mono); font-size:10px; color:var(--chalk-dim);
+    text-align:center; margin-top:10px; line-height:1.4;
+  }
+  .gp-empty{
+    font-family:var(--font-mono); font-size:11px; color:var(--chalk-dim);
+    text-align:center; padding:8px 0;
+  }
+  /* Blind Spots (build 2026-07-17d): coverage-by-decade bars, same row shape
+     as Decades Wheel but a proportional fill track instead of a waffle
+     square, since this is "how much of the whole decade" rather than a
+     per-show count. */
+  .bs-card{
+    background:var(--paper); border:1px solid var(--paper-line);
+    border-radius:8px; padding:16px 12px; margin-bottom:6px;
+  }
+  .bs-row{ display:flex; align-items:center; gap:8px; margin-bottom:7px; }
+  .bs-row:last-child{ margin-bottom:0; }
+  .bs-label{
+    font-family:var(--font-mono); font-size:10px; color:var(--chalk-dim);
+    width:42px; flex-shrink:0; text-align:right;
+  }
+  .bs-track{ flex:1; height:12px; background:var(--paper-line); border-radius:3px; overflow:hidden; }
+  .bs-fill{ height:100%; background:var(--chart-sage); border-radius:3px; }
+  .bs-count{ font-family:var(--font-mono); font-size:9.5px; color:var(--chalk-dim); width:64px; flex-shrink:0; }
+  .bs-caption{
+    font-family:var(--font-mono); font-size:10px; color:var(--chalk-dim);
+    text-align:center; margin-top:10px; line-height:1.4;
+  }
+  /* Tag Affinity (build 2026-07-17d): reuses the existing .stat-card panel
+     treatment (Vibe Check's card style) rather than a paper card, since
+     it's a rate/percentage stat, same family as the collaborator cards. */
+  .stat-card p.desc{
+    font-family:var(--font-mono); font-size:11px; color:var(--paper);
+    margin-top:0; opacity:0.85;
+  }
+  .ta-row{ display:flex; align-items:center; gap:8px; margin-bottom:7px; font-family:var(--font-mono); }
+  .ta-row:last-child{ margin-bottom:0; }
+  .ta-label{ font-size:10.5px; color:var(--paper); width:78px; flex-shrink:0; text-align:right; }
+  .ta-track{ flex:1; height:11px; background:var(--panel-line); border-radius:3px; overflow:hidden; }
+  .ta-fill{ height:100%; background:var(--amber); border-radius:3px; }
+  .ta-fill.low{ background:var(--curtain); }
+  .ta-count{ font-size:9.5px; color:var(--paper); opacity:0.7; width:82px; flex-shrink:0; }
 
   main{
     max-width:760px;
@@ -782,7 +847,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-17c</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-17d</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -4804,6 +4869,172 @@ function computeMostDivisive(loggedShows){
   return {winners, others, range:maxRange};
 }
 
+// Guilty Pleasures (build 2026-07-17d): shows where a high rating (4+) and
+// a less-than-full-buy-in verdict coexist on the same show — "loved the
+// night, didn't buy the argument." Same movie-adaptation-only rule as
+// Decades Wheel: a movie experience only enters the qualifying pool if its
+// movieDirection is 'adaptation' (unset/'source' is excluded outright, same
+// treatment as everywhere else this rule is checked). A show's qualifying
+// pool is every eligible experience rated 4+; it makes the list if that
+// pool has at least one experience whose verdict ISN'T allIn/boughtIn.
+// "Split" flags a show whose own qualifying pool disagrees with itself —
+// more than one distinct verdict among those high-rated experiences
+// (Cameron's example: loved the movie, didn't buy the stage version).
+const CAP_SHORT = {live:'live', recording:'recording', proshot:'pro-shot', movie:'movie'};
+const CAP_SHORT_PLURAL = {live:'live', recording:'recordings', proshot:'pro-shots', movie:'movies'};
+function formatStars(n){
+  const rounded = Math.round(n*2)/2;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+function describeVerdictSplit(verdictCounts){
+  const labelFor = v => v ? ((VERDICTS.find(x=>x.key===v)||{}).label || v) : 'no verdict set';
+  const entries = Object.entries(verdictCounts);
+  if(entries.length===2 && entries[0][1]===entries[1][1]){
+    const n = entries[0][1];
+    return n===1
+      ? `one ${labelFor(entries[0][0])}, one ${labelFor(entries[1][0])}`
+      : `${labelFor(entries[0][0])} and ${labelFor(entries[1][0])}, ${n} apiece`;
+  }
+  return entries.map(([v,c])=>`${c} ${labelFor(v)}`).join(', ');
+}
+function computeGuiltyPleasures(loggedShows){
+  const results = [];
+  loggedShows.forEach(s=>{
+    const exps = getState(s.id).experiences.filter(e=>{
+      if(e.rating==null || e.rating<4) return false;
+      if(e.capacity==='movie' && e.movieDirection!=='adaptation') return false;
+      return true;
+    });
+    if(exps.length===0) return;
+    const hasNonFullBuyIn = exps.some(e=> e.verdict!=='allIn' && e.verdict!=='boughtIn');
+    if(!hasNonFullBuyIn) return;
+    const avgRating = exps.reduce((sum,e)=>sum+e.rating,0)/exps.length;
+    const caps = [...new Set(exps.map(e=>e.capacity))];
+    const verdictCounts = {};
+    exps.forEach(e=>{ verdictCounts[e.verdict||null] = (verdictCounts[e.verdict||null]||0)+1; });
+    const split = Object.keys(verdictCounts).length > 1;
+    results.push({show:s, count:exps.length, avgRating, caps, split, verdictCounts});
+  });
+  results.sort((a,b)=> a.show.title.localeCompare(b.show.title));
+  return results;
+}
+function renderGuiltyPleasuresHtml(loggedShows){
+  const list = computeGuiltyPleasures(loggedShows);
+  if(list.length===0){
+    return `<div class="gp-card"><p class="gp-empty">no guilty pleasures yet — nothing rated 4★+ paired with a less-than-full-buy-in verdict</p></div>`;
+  }
+  const rows = list.map(item=>{
+    const {show, count, avgRating, caps} = item;
+    let meta;
+    if(count===1){
+      meta = `${CAP_SHORT[caps[0]]} · ${formatStars(avgRating)}★`;
+    } else if(caps.length===1){
+      meta = `${CAP_SHORT_PLURAL[caps[0]]} · ${formatStars(avgRating)}★ avg`;
+    } else {
+      meta = `${count} formats · ${formatStars(avgRating)}★ avg`;
+    }
+    const splitNote = item.split ? `<div class="gp-split-note">genuinely split — ${describeVerdictSplit(item.verdictCounts)}</div>` : '';
+    return `
+      <div class="gp-row">
+        <div class="gp-row-line"><span class="gp-row-title">${escapeHtml(show.title)}</span><span class="gp-row-meta">${meta}</span></div>
+        ${splitNote}
+      </div>
+    `;
+  }).join('');
+  return `
+    <div class="gp-card">
+      <div class="gp-title">Guilty Pleasures</div>
+      ${rows}
+      <p class="gp-caption">loved the night, didn't buy the argument</p>
+    </div>
+  `;
+}
+
+// Blind Spots (build 2026-07-17d): coverage by decade across the FULL
+// catalog (not just logged shows, unlike every other Wrapped chart except
+// Queue Right Now) — how much of the app's backlog has been touched, decade
+// by decade. A show counts toward its decade's total if it has a year on
+// record, regardless of logged status; it counts toward "touched" if it
+// also has at least one logged experience. Reuses the same DECADE_START/
+// END/STEP constants Decades Wheel already established.
+function computeBlindSpots(){
+  const decades = [];
+  for(let d=DECADE_START; d<=DECADE_END; d+=DECADE_STEP) decades.push(d);
+  const total = {}, touched = {};
+  decades.forEach(d=>{ total[d]=0; touched[d]=0; });
+  Object.values(allShows()).forEach(s=>{
+    if(s.year==null) return;
+    const decade = Math.floor(s.year/DECADE_STEP)*DECADE_STEP;
+    if(!total.hasOwnProperty(decade)) return;
+    total[decade]++;
+    if(getState(s.id).experiences.length>0) touched[decade]++;
+  });
+  return {decades, total, touched};
+}
+function renderBlindSpotsHtml(){
+  const {decades, total, touched} = computeBlindSpots();
+  const rows = decades.map(d=>{
+    const t = total[d], c = touched[d];
+    const pct = t>0 ? Math.round((c/t)*100) : 0;
+    return `<div class="bs-row"><span class="bs-label">${d}s</span><div class="bs-track"><div class="bs-fill" style="width:${pct}%"></div></div><span class="bs-count">${c} of ${t}</span></div>`;
+  }).join('');
+  return `
+    <div class="bs-card">
+      ${rows}
+      <p class="bs-caption">how much of this app's backlog you've touched, decade by decade</p>
+    </div>
+  `;
+}
+
+// Tag Affinity (build 2026-07-17d): per-tag "landing" rate — reuses the
+// exact qualifying rule Decades Wheel already established (rating 4+ OR
+// verdict allIn/boughtIn, with a movie experience only counting if its
+// movieDirection is 'adaptation') applied per LOGGED show, then rolled up
+// by every tag that show carries. A tag's percentage is landed-shows ÷
+// total-shows-carrying-that-tag, among logged shows only. Sorted highest-
+// to-lowest so the top is what reliably works and the bottom is what tends
+// to bounce; ties broken by show count (more shows behind the number wins).
+function computeTagAffinity(loggedShows){
+  const landedByTag = {}, totalByTag = {};
+  loggedShows.forEach(s=>{
+    const exps = getState(s.id).experiences;
+    const landed = exps.some(e=>{
+      const meetsBar = (e.rating && e.rating>=4) || e.verdict==='allIn' || e.verdict==='boughtIn';
+      if(!meetsBar) return false;
+      if(e.capacity==='movie' && e.movieDirection!=='adaptation') return false;
+      return true;
+    });
+    (s.tags||[]).forEach(tag=>{
+      totalByTag[tag] = (totalByTag[tag]||0)+1;
+      if(landed) landedByTag[tag] = (landedByTag[tag]||0)+1;
+    });
+  });
+  const rows = Object.keys(totalByTag).map(tag=>{
+    const total = totalByTag[tag];
+    const landed = landedByTag[tag]||0;
+    return {tag, pct:Math.round((landed/total)*100), total};
+  });
+  rows.sort((a,b)=> b.pct - a.pct || b.total - a.total);
+  return rows;
+}
+function renderTagAffinityHtml(loggedShows){
+  const rows = computeTagAffinity(loggedShows);
+  if(rows.length===0){
+    return `<div class="stat-card"><h3>Tag Affinity</h3><p class="desc">How well shows carrying each tag tend to land with you.</p></div>`;
+  }
+  const body = rows.map(r=>{
+    const lowClass = r.pct<40 ? ' low' : '';
+    return `<div class="ta-row"><span class="ta-label">${escapeHtml(r.tag)}</span><div class="ta-track"><div class="ta-fill${lowClass}" style="width:${r.pct}%"></div></div><span class="ta-count">${r.pct}% · ${r.total} show${r.total===1?'':'s'}</span></div>`;
+  }).join('');
+  return `
+    <div class="stat-card">
+      <h3>Tag Affinity</h3>
+      <p class="desc">How well shows carrying each tag tend to land with you.</p>
+      ${body}
+    </div>
+  `;
+}
+
 // Wrapped tab (build 2026-07-09i): the recap-style page, structured in the
 // Layout B order Cameron picked over the header-block alternative — each
 // paired stat tile sits directly above the chart it explains, rather than
@@ -4936,6 +5167,9 @@ function renderWrapped(){
       <div class="wrapped-tile"><span class="num">${allInRate!=null ? allInRate+'%' : '—'}</span><span class="label">All In rate</span></div>
     </div>
     ${renderQueueRightNowHtml()}
+    ${renderGuiltyPleasuresHtml(loggedShows)}
+    ${renderBlindSpotsHtml()}
+    ${renderTagAffinityHtml(loggedShows)}
   `;
   wireDecadesWheel(el, decadeData.shows);
 }

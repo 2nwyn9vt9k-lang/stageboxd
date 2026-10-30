@@ -844,7 +844,7 @@
     <button id="importBtn">IMPORT</button>
   </div>
   <button id="apiKeyBtn">API KEY</button>
-  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-07-17d</div>
+  <div id="buildStamp" style="flex:1 0 100%; text-align:center; font-family:'JetBrains Mono','Courier New',monospace; font-size:9px; letter-spacing:1px; color:rgba(255,255,255,0.3); margin-top:2px;">build 2026-10-30a</div>
 </div>
 
 <input type="file" id="importFile" accept="application/json" style="display:none">
@@ -1281,6 +1281,9 @@ const RAW_SEED = [
 ["Flying Over Sunset",2021,["Tom Kitt","Michael Korie","James Lapine"],["musical","drama","history"],{"Tom Kitt":{"music":true,"lyrics":false,"book":false},"Michael Korie":{"music":false,"lyrics":true,"book":false},"James Lapine":{"music":false,"lyrics":false,"book":true}}],
 ["Mr. Saturday Night",2022,["Jason Robert Brown"],["musical","comedy","biography"],{}],
 ["Here Lies Love",2023,["David Byrne","Fatboy Slim","Alex Timbers"],["musical","biography","drama"],{"David Byrne":{"music":true,"lyrics":true,"book":true},"Fatboy Slim":{"music":true,"lyrics":false,"book":false},"Alex Timbers":{"music":false,"lyrics":false,"book":true}}],
+// Season-driven additions (build 2026-10-30a): added one show at a time as real-life events need them, not as a sweep.
+["BOOP! The Musical",2025,["David Foster","Susan Birkenhead","Bob Martin"],["musical","comedy","romance"],{"David Foster":{"music":true,"lyrics":false,"book":false},"Susan Birkenhead":{"music":false,"lyrics":true,"book":false},"Bob Martin":{"music":false,"lyrics":false,"book":true}}],
+["Operation Mincemeat",2025,["David Cumming","Felix Hagan","Natasha Hodgson","Zoë Roberts"],["musical","comedy","history"],{"David Cumming":{"music":true,"lyrics":true,"book":true},"Felix Hagan":{"music":true,"lyrics":true,"book":true},"Natasha Hodgson":{"music":true,"lyrics":true,"book":true},"Zoë Roberts":{"music":true,"lyrics":true,"book":true}}],
 ];
 
 function slugify(s){
@@ -1731,6 +1734,8 @@ const SEED_PREMISES = {
   "lempicka": "Traces Polish painter Tamara de Lempicka's flight from the Russian Revolution to 1920s Paris, where she reinvents herself as a celebrated portraitist, falls for her model and muse Rafaela, and is torn between the ambition, decadence, and danger of a world sliding toward fascism.",
   "a-wonderful-world": "Traces jazz legend Louis Armstrong's rise from poverty in New Orleans to global stardom across New Orleans, Chicago, Hollywood, and New York, told through the perspectives of the four wives who shaped and were reshaped by his career.",
   "real-women-have-curves": "In 1987 Boyle Heights, Los Angeles, a high-school senior torn between her dream of college and journalism and her family's expectations works alongside her mother and sister in the family's garment factory as they race to complete a make-or-break dress order.",
+  "boop-the-musical": "The 1930s cartoon icon Betty Boop breaks out of her black-and-white animated world and lands in present-day New York City, where she goes searching for love and for a sense of who she is beyond the cartoon.",
+  "operation-mincemeat": "In 1943, a small team of mismatched British intelligence officers, including a young Ian Fleming, concocts a plan to float a corpse carrying fake invasion papers off the coast of Spain to fool the Nazis about where the Allies will strike next, told as a fast, irreverent comedy by a cast playing dozens of roles.",
 };
 // Returns a show's premise sentence, or null if none exists yet. A rare
 // per-show correction can be set on the override record's `premiseOverride`
